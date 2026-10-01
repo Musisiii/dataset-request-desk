@@ -1,6 +1,6 @@
 # Dataset Request Desk
 
-Internal platform for managing robotics dataset requests. This repository currently contains Phase 1: the Django foundation, PostgreSQL configuration, custom email-based users, seed accounts, health check, and tests.
+Internal platform for managing robotics dataset requests. This repository currently contains the Django foundation and Phase 2 request workflow API.
 
 ## Run with Docker
 
@@ -33,6 +33,19 @@ Without PostgreSQL environment variables, Django uses SQLite only for convenient
 ```bash
 pytest
 ```
+
+## Phase 2 API
+
+All `/api/` endpoints require authentication. Basic authentication is available for local development using the seed accounts below.
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/requests/` | List requests visible to the authenticated user. |
+| `POST` | `/api/requests/` | Create a request as the authenticated client. |
+| `GET` | `/api/requests/{id}/` | Retrieve a permitted request. |
+| `POST` | `/api/requests/{id}/transition/` | Submit `{"status": "..."}` for an authorized workflow transition. |
+
+Clients see only their own requests and receive `404` for another client's request. Operators and admins can see all requests and perform operational transitions; clients own acceptance and rejection transitions.
 
 ## Development seed accounts
 
