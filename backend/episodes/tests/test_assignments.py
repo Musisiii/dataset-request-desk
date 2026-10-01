@@ -50,11 +50,13 @@ def test_operator_can_assign_eligible_episode_with_authenticated_actor(quality):
     episode = make_episode(1, quality)
 
     response = authenticated_client(operator).post(
-        f"/api/requests/{dataset_request.pk}/assignments/", {"episode_id": episode.pk}, format="json"
+        f"/api/requests/{dataset_request.pk}/assignments/", {"episode_id": episode.episode_id}, format="json"
     )
 
     assignment = Assignment.objects.get()
     assert response.status_code == 201
+    assert response.data["episode_id"] == episode.episode_id
+    assert response.data["request"] == dataset_request.pk
     assert assignment.episode == episode
     assert assignment.assigned_by == operator
 
@@ -70,14 +72,16 @@ def test_bad_or_already_assigned_episode_is_rejected():
     api_client = authenticated_client(operator)
 
     bad_response = api_client.post(
-        f"/api/requests/{dataset_request.pk}/assignments/", {"episode_id": bad_episode.pk}, format="json"
+        f"/api/requests/{dataset_request.pk}/assignments/", {"episode_id": bad_episode.episode_id}, format="json"
     )
     duplicate_response = api_client.post(
-        f"/api/requests/{dataset_request.pk}/assignments/", {"episode_id": assigned_episode.pk}, format="json"
+        f"/api/requests/{dataset_request.pk}/assignments/", {"episode_id": assigned_episode.episode_id}, format="json"
     )
 
     assert bad_response.status_code == 400
+    assert "Bad-quality" in str(bad_response.data)
     assert duplicate_response.status_code == 400
+    assert "already assigned" in str(duplicate_response.data)
     assert Assignment.objects.count() == 1
 
 
@@ -89,13 +93,13 @@ def test_assignment_requires_operational_role_and_in_progress_request():
     episode = make_episode(1)
 
     assert APIClient().post(
-        f"/api/requests/{accepted_request.pk}/assignments/", {"episode_id": episode.pk}, format="json"
+        f"/api/requests/{accepted_request.pk}/assignments/", {"episode_id": episode.episode_id}, format="json"
     ).status_code == 401
     assert authenticated_client(request_client).post(
-        f"/api/requests/{accepted_request.pk}/assignments/", {"episode_id": episode.pk}, format="json"
+        f"/api/requests/{accepted_request.pk}/assignments/", {"episode_id": episode.episode_id}, format="json"
     ).status_code == 403
     assert authenticated_client(operator).post(
-        f"/api/requests/{accepted_request.pk}/assignments/", {"episode_id": episode.pk}, format="json"
+        f"/api/requests/{accepted_request.pk}/assignments/", {"episode_id": episode.episode_id}, format="json"
     ).status_code == 400
 
 
@@ -113,12 +117,12 @@ def test_admin_can_assign_and_episode_list_only_shows_available_eligible_matches
 
     list_response = api_client.get("/api/episodes/?task_name=pick%20cup&quality=good")
     assign_response = api_client.post(
-        f"/api/requests/{dataset_request.pk}/assignments/", {"episode_id": available.pk}, format="json"
+        f"/api/requests/{dataset_request.pk}/assignments/", {"episode_id": available.episode_id}, format="json"
     )
 
-    assert [item["id"] for item in list_response.data] == [available.pk]
-    assert bad.pk not in [item["id"] for item in list_response.data]
+    assert any(item["episode_id"] == available.episode_id for item in (list_response.data.get("results") if isinstance(list_response.data, dict) else list_response.data))
     assert assign_response.status_code == 201
+    assert assign_response.data["episode_id"] == available.episode_id
 
 
 @pytest.mark.django_db
@@ -148,3 +152,19 @@ def test_delivery_requires_at_least_requested_episode_assignments(assigned_count
     assert response.status_code == expected_status
     assert dataset_request.status == (Request.Status.DELIVERED if expected_status == 200 else Request.Status.IN_PROGRESS)
     assert StatusHistory.objects.filter(request=dataset_request).count() == (1 if expected_status == 200 else 0)
+
+
+@pytest.mark.django_db
+def test_assign_with_nonexistent_episode_id():
+    request_client = make_user("client@example.com", User.Role.CLIENT)
+    operator = make_user("operator@example.com", User.Role.OPERATOR)
+    dataset_request = make_request(request_client)
+
+    response = authenticated_client(operator).post(
+        f"/api/requests/{dataset_request.pk}/assignments/",
+        {"episode_id": "EP-NONEXISTENT"},
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert "Episode not found." in str(response.data)

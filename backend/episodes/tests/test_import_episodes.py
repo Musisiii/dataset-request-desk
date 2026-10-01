@@ -74,3 +74,21 @@ def test_supplied_seed_file_import_is_idempotent():
     assert Episode.objects.count() == first_count
     assert "Imported: 0" in second_output
     assert "duplicate episode" in second_output
+
+
+@pytest.mark.django_db
+def test_import_skips_differently_cased_duplicate_episode_ids(tmp_path):
+    csv_file = tmp_path / "episodes.csv"
+    csv_file.write_text(
+        HEADER
+        + "EP-00003,humanoid-01,fold towel,2026-08-05T06:57:00,12,Aline,good\n"
+        + "ep-00003,arm-02,wipe table,2026-08-22T09:10:00,33,Eric,good\n"
+    )
+
+    output, _ = run_import(csv_file)
+    assert Episode.objects.count() == 1
+    episode = Episode.objects.get()
+    assert episode.episode_id == "EP-00003"
+    assert episode.robot_id == "humanoid-01"
+    assert "Imported: 1" in output
+    assert "duplicate episode: 1" in output

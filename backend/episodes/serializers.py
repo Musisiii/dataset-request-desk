@@ -19,7 +19,13 @@ class EpisodeSerializer(serializers.ModelSerializer):
 
 
 class AssignmentCreateSerializer(serializers.Serializer):
-    episode_id = serializers.IntegerField(min_value=1)
+    episode_id = serializers.CharField(max_length=64)
+
+    def validate_episode_id(self, value):
+        normalized = value.strip().upper()
+        if not normalized:
+            raise serializers.ValidationError("Episode ID cannot be empty.")
+        return normalized
 
 
 class AssignmentSerializer(serializers.ModelSerializer):

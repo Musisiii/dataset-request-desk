@@ -42,8 +42,10 @@ class Episode(models.Model):
 
     def clean(self):
         errors = {}
-        if not self.episode_id or not self.episode_id.strip():
+        if not self.episode_id or not str(self.episode_id).strip():
             errors["episode_id"] = "Episode ID is required."
+        else:
+            self.episode_id = str(self.episode_id).strip().upper()
         if self.robot_id not in KNOWN_ROBOT_IDS:
             errors["robot_id"] = "Unknown robot ID."
         if not self.task_name or not self.task_name.strip():
@@ -54,6 +56,11 @@ class Episode(models.Model):
             errors["recorded_at"] = "Recorded time cannot be in the future."
         if errors:
             raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.episode_id:
+            self.episode_id = str(self.episode_id).strip().upper()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.episode_id

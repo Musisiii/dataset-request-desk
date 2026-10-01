@@ -58,7 +58,7 @@ def parse_row(row):
     if row.get(None):
         raise RowError("malformed row")
 
-    episode_id = normalized_value(row, "episode_id")
+    episode_id = normalized_value(row, "episode_id").upper()
     robot_id = normalized_value(row, "robot_id")
     task_name = normalized_value(row, "task_name")
     recorded_at_value = normalized_value(row, "recorded_at")

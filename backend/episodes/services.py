@@ -12,13 +12,15 @@ def assign_episode(dataset_request, episode_id, acting_user):
     if acting_user.role not in {User.Role.OPERATOR, User.Role.ADMIN}:
         raise PermissionDenied("Only operators and admins can assign episodes.")
 
+    normalized_episode_id = str(episode_id).strip().upper()
+
     with transaction.atomic():
         locked_request = Request.objects.select_for_update().get(pk=dataset_request.pk)
         if locked_request.status != Request.Status.IN_PROGRESS:
             raise ValidationError({"request": "Episodes can only be assigned while a request is in progress."})
 
         try:
-            episode = Episode.objects.select_for_update().get(pk=episode_id)
+            episode = Episode.objects.select_for_update().get(episode_id=normalized_episode_id)
         except Episode.DoesNotExist as exc:
             raise ValidationError({"episode_id": "Episode not found."}) from exc
         if episode.quality == Episode.Quality.BAD:

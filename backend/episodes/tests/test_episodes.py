@@ -53,3 +53,16 @@ def test_episode_database_constraints_reject_unknown_robot_and_invalid_duration(
     with transaction.atomic():
         with pytest.raises(IntegrityError):
             Episode.objects.create(**episode_data(episode_id="EP-TEST-003", duration_seconds=0))
+
+
+@pytest.mark.django_db
+def test_episode_id_is_normalized_to_uppercase_on_save():
+    episode = Episode.objects.create(**episode_data(episode_id=" ep-lower-001 "))
+    assert episode.episode_id == "EP-LOWER-001"
+
+
+@pytest.mark.django_db
+def test_differently_cased_episode_ids_cannot_create_duplicate_episodes():
+    Episode.objects.create(**episode_data(episode_id="EP-CASE-001"))
+    with pytest.raises(IntegrityError):
+        Episode.objects.create(**episode_data(episode_id="ep-case-001"))
