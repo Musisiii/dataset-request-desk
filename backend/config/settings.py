@@ -19,6 +19,7 @@ INSTALLED_APPS = [
     "accounts",
     "core",
     "dataset_requests",
+    "episodes",
 ]
 
 MIDDLEWARE = [

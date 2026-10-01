@@ -44,6 +44,13 @@ def transition_request(dataset_request, new_status, acting_user):
         if new_status not in allowed_targets:
             raise PermissionDenied("Your role cannot perform this transition.")
 
+        if new_status == Request.Status.DELIVERED:
+            assigned_count = locked_request.assignments.count()
+            if assigned_count < locked_request.episodes_requested:
+                raise ValidationError(
+                    {"status": "Cannot deliver until enough episodes have been assigned."}
+                )
+
         locked_request.status = new_status
         locked_request.save(update_fields=["status", "updated_at"])
         StatusHistory.objects.create(
