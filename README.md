@@ -47,6 +47,27 @@ All `/api/` endpoints require authentication. Basic authentication is available 
 
 Clients see only their own requests and receive `404` for another client's request. Operators and admins can see all requests and perform operational transitions; clients own acceptance and rejection transitions.
 
+## Episodes and assignments
+
+Import the recording-system export from `backend/`:
+
+```bash
+python manage.py import_episodes ../seed/episodes.csv
+```
+
+The importer trims safe whitespace, normalizes quality casing, supports the date formats in the supplied export, and reports imported, duplicate, and invalid rows with reasons. It uses the database-unique episode ID as its identity, so rerunning the same file skips existing episodes.
+
+Operators and admins can list unassigned `good` and `usable` episodes with `GET /api/episodes/?task_name=pick%20cup&quality=good`. Clients cannot access this endpoint.
+
+To assign an episode by its database ID while a request is `in_progress`:
+
+```text
+POST /api/requests/{id}/assignments/
+{"episode_id": 123}
+```
+
+Each episode has one assignment at most. A request requires at least its requested number of assigned episodes before the operator can transition it from `in_progress` to `delivered`.
+
 ## Development seed accounts
 
 | Email | Password | Role |

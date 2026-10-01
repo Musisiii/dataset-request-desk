@@ -4,6 +4,8 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from accounts.models import User
+from episodes.serializers import AssignmentCreateSerializer, AssignmentSerializer
+from episodes.services import assign_episode
 
 from .models import Request
 from .serializers import RequestSerializer, TransitionSerializer
@@ -39,3 +41,11 @@ class RequestViewSet(viewsets.ModelViewSet):
             request.user,
         )
         return Response(RequestSerializer(transitioned_request).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="assignments")
+    def assign(self, request, pk=None):
+        dataset_request = self.get_object()
+        serializer = AssignmentCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        assignment = assign_episode(dataset_request, serializer.validated_data["episode_id"], request.user)
+        return Response(AssignmentSerializer(assignment).data, status=status.HTTP_201_CREATED)

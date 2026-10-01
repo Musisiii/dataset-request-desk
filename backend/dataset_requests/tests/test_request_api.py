@@ -16,7 +16,7 @@ def make_request(client, status=Request.Status.SUBMITTED):
     return Request.objects.create(
         client=client,
         task_name="pick cup",
-        episodes_requested=10,
+        episodes_requested=1,
         deadline="2026-10-10",
         notes="",
         status=status,
@@ -122,6 +122,22 @@ def test_each_valid_transition_updates_request_and_records_history(starting_stat
     client_user = make_user("client@example.com", User.Role.CLIENT)
     actor = client_user if role == User.Role.CLIENT else make_user("ops@example.com", role)
     dataset_request = make_request(client_user, starting_status)
+    if target_status == Request.Status.DELIVERED:
+        from datetime import timedelta
+
+        from django.utils import timezone
+        from episodes.models import Assignment, Episode
+
+        episode = Episode.objects.create(
+            episode_id="EP-PHASE-2-DELIVERY",
+            robot_id="arm-01",
+            task_name="pick cup",
+            recorded_at=timezone.now() - timedelta(days=1),
+            duration_seconds=30,
+            operator_name="Aline",
+            quality=Episode.Quality.GOOD,
+        )
+        Assignment.objects.create(request=dataset_request, episode=episode, assigned_by=actor)
 
     response = authenticated_client(actor).post(
         f"/api/requests/{dataset_request.pk}/transition/", {"status": target_status}, format="json"
