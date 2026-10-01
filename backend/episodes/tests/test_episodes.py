@@ -66,3 +66,11 @@ def test_differently_cased_episode_ids_cannot_create_duplicate_episodes():
     Episode.objects.create(**episode_data(episode_id="EP-CASE-001"))
     with pytest.raises(IntegrityError):
         Episode.objects.create(**episode_data(episode_id="ep-case-001"))
+
+
+@pytest.mark.django_db
+def test_database_rejects_noncanonical_episode_id_updates():
+    episode = Episode.objects.create(**episode_data())
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Episode.objects.filter(pk=episode.pk).update(episode_id=" ep-test-001 ")

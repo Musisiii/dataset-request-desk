@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.functions import Trim, Upper
 from django.utils import timezone
 
 from dataset_requests.models import Request
@@ -29,6 +30,10 @@ class Episode(models.Model):
             models.CheckConstraint(
                 condition=models.Q(robot_id__in=KNOWN_ROBOT_IDS),
                 name="episode_known_robot_id",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(episode_id=Upper(Trim("episode_id"))),
+                name="episode_id_canonical_format",
             ),
             models.CheckConstraint(
                 condition=models.Q(quality__in=["good", "usable", "bad"]),

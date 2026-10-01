@@ -83,6 +83,7 @@ def test_import_skips_differently_cased_duplicate_episode_ids(tmp_path):
         HEADER
         + "EP-00003,humanoid-01,fold towel,2026-08-05T06:57:00,12,Aline,good\n"
         + "ep-00003,arm-02,wipe table,2026-08-22T09:10:00,33,Eric,good\n"
+        + " ep-00003 ,arm-03,stack blocks,2026-08-23T09:10:00,34,Jeanne,good\n"
     )
 
     output, _ = run_import(csv_file)
@@ -91,4 +92,4 @@ def test_import_skips_differently_cased_duplicate_episode_ids(tmp_path):
     assert episode.episode_id == "EP-00003"
     assert episode.robot_id == "humanoid-01"
     assert "Imported: 1" in output
-    assert "duplicate episode: 1" in output
+    assert "duplicate episode: 2" in output
