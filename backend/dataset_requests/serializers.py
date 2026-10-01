@@ -6,6 +6,7 @@ from .models import Request
 class RequestSerializer(serializers.ModelSerializer):
     client = serializers.PrimaryKeyRelatedField(read_only=True)
     episodes_requested = serializers.IntegerField(min_value=1)
+    assigned_episodes_count = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
         model = Request
@@ -14,6 +15,7 @@ class RequestSerializer(serializers.ModelSerializer):
             "client",
             "task_name",
             "episodes_requested",
+            "assigned_episodes_count",
             "deadline",
             "notes",
             "status",

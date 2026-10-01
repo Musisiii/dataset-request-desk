@@ -88,8 +88,55 @@ def test_clients_only_list_and_retrieve_their_own_requests():
     list_response = api_client.get("/api/requests/")
     detail_response = api_client.get(f"/api/requests/{other_request.pk}/")
 
-    assert [item["id"] for item in list_response.data] == [own_request.pk]
+    assert [item["id"] for item in list_response.data["results"]] == [own_request.pk]
     assert detail_response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_request_responses_include_annotated_assigned_episode_counts():
+    from datetime import timedelta
+
+    from django.utils import timezone
+    from episodes.models import Assignment, Episode
+
+    client_user = make_user("client@example.com", User.Role.CLIENT)
+    operator = make_user("ops@example.com", User.Role.OPERATOR)
+    assigned_request = make_request(client_user)
+    empty_request = make_request(client_user)
+    episode = Episode.objects.create(
+        episode_id="EP-COUNT-001",
+        robot_id="arm-01",
+        task_name="pick cup",
+        recorded_at=timezone.now() - timedelta(days=1),
+        duration_seconds=30,
+        operator_name="Aline",
+        quality=Episode.Quality.GOOD,
+    )
+    Assignment.objects.create(request=assigned_request, episode=episode, assigned_by=operator)
+
+    response = authenticated_client(client_user).get("/api/requests/")
+    counts_by_id = {item["id"]: item["assigned_episodes_count"] for item in response.data["results"]}
+
+    assert counts_by_id == {assigned_request.pk: 1, empty_request.pk: 0}
+
+
+@pytest.mark.django_db
+def test_request_list_is_paginated_without_leaking_other_clients_requests():
+    client_a = make_user("client-a@example.com", User.Role.CLIENT)
+    client_b = make_user("client-b@example.com", User.Role.CLIENT)
+    requests_a = [make_request(client_a) for _ in range(51)]
+    make_request(client_b)
+
+    api_client = authenticated_client(client_a)
+    first_page = api_client.get("/api/requests/")
+    second_page = api_client.get("/api/requests/?page=2")
+
+    assert first_page.data["count"] == 51
+    assert len(first_page.data["results"]) == 50
+    assert len(second_page.data["results"]) == 1
+    assert {item["id"] for item in first_page.data["results"] + second_page.data["results"]} == {
+        item.pk for item in requests_a
+    }
 
 
 @pytest.mark.django_db

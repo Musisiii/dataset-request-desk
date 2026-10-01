@@ -1,3 +1,4 @@
+from django.db.models import Count
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -17,7 +18,9 @@ class RequestViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "head", "options"]
 
     def get_queryset(self):
-        queryset = Request.objects.select_related("client")
+        queryset = Request.objects.select_related("client").annotate(
+            assigned_episodes_count=Count("assignments")
+        ).order_by("-created_at", "-pk")
         if self.request.user.role == User.Role.CLIENT:
             return queryset.filter(client=self.request.user)
         return queryset
@@ -40,7 +43,8 @@ class RequestViewSet(viewsets.ModelViewSet):
             serializer.validated_data["status"],
             request.user,
         )
-        return Response(RequestSerializer(transitioned_request).data, status=status.HTTP_200_OK)
+        response_request = self.get_queryset().get(pk=transitioned_request.pk)
+        return Response(RequestSerializer(response_request).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="assignments")
     def assign(self, request, pk=None):

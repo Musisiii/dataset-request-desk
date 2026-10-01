@@ -136,6 +136,23 @@ def test_client_cannot_view_available_episodes():
 
 
 @pytest.mark.django_db
+def test_episode_list_is_paginated_and_filters_remain_active():
+    operator = make_user("operator@example.com", User.Role.OPERATOR)
+    for number in range(52):
+        make_episode(number, task_name="pick cup")
+    make_episode(100, task_name="wipe table")
+
+    api_client = authenticated_client(operator)
+    first_page = api_client.get("/api/episodes/?task_name=pick%20cup&quality=good")
+    second_page = api_client.get("/api/episodes/?task_name=pick%20cup&quality=good&page=2")
+
+    assert first_page.data["count"] == 52
+    assert len(first_page.data["results"]) == 50
+    assert len(second_page.data["results"]) == 2
+    assert all(item["task_name"] == "pick cup" for item in first_page.data["results"] + second_page.data["results"])
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("assigned_count, expected_status", [(0, 400), (9, 400), (10, 200), (11, 200)])
 def test_delivery_requires_at_least_requested_episode_assignments(assigned_count, expected_status):
     request_client = make_user("client@example.com", User.Role.CLIENT)
