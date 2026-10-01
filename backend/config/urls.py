@@ -8,4 +8,5 @@ urlpatterns = [
     path("health", health, name="health"),
     path("health/", health, name="health-slash"),
     path("api/", include("dataset_requests.urls")),
+    path("api/", include("accounts.urls")),
 ]
