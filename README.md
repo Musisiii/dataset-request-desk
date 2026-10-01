@@ -1,20 +1,37 @@
 # Dataset Request Desk
 
-Internal platform for managing robotics dataset requests. This repository currently contains the Django foundation and Phase 2 request workflow API.
+Dataset Request Desk is an internal platform for managing robotics data requests, episode metadata, assignment, and client acceptance. The backend uses Python, Django, and Django REST Framework; Docker Compose runs PostgreSQL. SQLite is available for local development.
+
+## Architecture
+
+- `accounts`: email-based users and admin user management.
+- `dataset_requests`: requests, role-scoped API access, workflow transitions, and status history.
+- `episodes`: episode metadata, CSV import, and one-to-one request assignments.
+- `core`: health and analytics endpoints, plus structured request logging.
 
 ## Run with Docker
 
-Copy `.env.example` to `.env` and replace the development-only values. Then start the stack:
+Copy `.env.example` to `.env`, replacing development-only values, then start the database and API:
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
-The backend waits for PostgreSQL to pass its health check, then runs Django migrations and `seed_users`. Both are safe on repeated container starts. The API is available at `http://localhost:8000`, and `GET /health` checks both Django and database connectivity.
+The backend waits for PostgreSQL, applies migrations, and creates missing seed users. The API is available at `http://localhost:8000`; `GET /health` checks database connectivity.
 
-## Local development
+Run Django commands from the backend container:
 
-Create a virtual environment, install dependencies, then run commands from `backend/`:
+```bash
+docker compose exec backend python manage.py showmigrations
+docker compose exec backend python manage.py migrate
+docker compose exec backend python manage.py seed_users
+docker compose exec backend python manage.py import_episodes ../seed/episodes.csv
+docker compose exec backend pytest
+```
+
+The image working directory is `/app/backend`, so these commands work without an extra `cd` or `-w` argument. `docker compose down` stops the services and retains the PostgreSQL volume.
+
+## Local Development
 
 ```bash
 python -m venv .venv
@@ -26,49 +43,11 @@ python manage.py seed_users
 python manage.py runserver
 ```
 
-Without PostgreSQL environment variables, Django uses SQLite only for convenient local test development. Docker uses PostgreSQL through the `.env` configuration.
+Without PostgreSQL environment variables, Django uses SQLite. Docker Compose configures PostgreSQL.
 
-## Tests
+## Authentication and Roles
 
-```bash
-pytest
-```
-
-## Phase 2 API
-
-All `/api/` endpoints require authentication. Basic authentication is available for local development using the seed accounts below.
-
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/requests/` | List requests visible to the authenticated user. |
-| `POST` | `/api/requests/` | Create a request as the authenticated client. |
-| `GET` | `/api/requests/{id}/` | Retrieve a permitted request. |
-| `POST` | `/api/requests/{id}/transition/` | Submit `{"status": "..."}` for an authorized workflow transition. |
-
-Clients see only their own requests and receive `404` for another client's request. Operators and admins can see all requests and perform operational transitions; clients own acceptance and rejection transitions.
-
-## Episodes and assignments
-
-Import the recording-system export from `backend/`:
-
-```bash
-python manage.py import_episodes ../seed/episodes.csv
-```
-
-The importer trims safe whitespace, normalizes quality casing, supports the date formats in the supplied export, and reports imported, duplicate, and invalid rows with reasons. It uses the database-unique episode ID as its identity, so rerunning the same file skips existing episodes.
-
-Operators and admins can list unassigned `good` and `usable` episodes with `GET /api/episodes/?task_name=pick%20cup&quality=good`. Clients cannot access this endpoint.
-
-To assign an episode by its database ID while a request is `in_progress`:
-
-```text
-POST /api/requests/{id}/assignments/
-{"episode_id": 123}
-```
-
-Each episode has one assignment at most. A request requires at least its requested number of assigned episodes before the operator can transition it from `in_progress` to `delivered`.
-
-## Development seed accounts
+All `/api/` endpoints require authentication. The API supports HTTP Basic and Django session authentication. Development seed accounts are:
 
 | Email | Password | Role |
 | --- | --- | --- |
@@ -78,4 +57,76 @@ Each episode has one assignment at most. A request requires at least its request
 | client-a@example.com | client123 | client |
 | client-b@example.com | client123 | client |
 
-Passwords are read from the supplied JSON only when creating missing development users. Django stores password hashes, and subsequent seed runs do not reset existing passwords.
+Clients create requests as themselves and can list or retrieve only their own requests. Clients accept or reject delivered requests. Operators and admins view all requests, perform operational transitions, list available episodes, and assign episodes. Only admins manage users. Seed passwords are development-only; Django stores password hashes.
+
+## Request Workflow
+
+Valid transitions are `submitted → in_progress → delivered → accepted`, `delivered → rejected`, and `rejected → in_progress`. Clients own acceptance/rejection; operators and admins own operational transitions. Each successful transition updates the request and writes a `StatusHistory` record in one transaction. Delivery is rejected until at least `episodes_requested` episodes are assigned.
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/requests/` | List visible requests. |
+| `POST` | `/api/requests/` | Create a request as the authenticated client. |
+| `GET` | `/api/requests/{id}/` | Retrieve a permitted request. |
+| `POST` | `/api/requests/{id}/transition/` | Transition with `{"status":"in_progress"}` or another permitted status. |
+| `POST` | `/api/requests/{id}/assignments/` | Assign an eligible episode by business ID. |
+
+Responses include `assigned_episodes_count`, calculated with a database annotation. Request lists use DRF page-number pagination with 50 results per page and a `count`, `next`, `previous`, `results` envelope. Use `?page=2` for later pages.
+
+## Episodes and Assignments
+
+Import the supplied recording-system CSV from the repository root in Docker, or from `backend/` locally:
+
+```bash
+docker compose exec backend python manage.py import_episodes ../seed/episodes.csv
+```
+
+The importer trims and uppercases episode IDs, normalizes quality casing, supports the supplied date formats, and reports imported/skipped rows and reasons. Repeated or case/whitespace-variant IDs resolve to one canonical ID. A database constraint requires stored IDs to be canonical. The migration retains the lowest-PK duplicate and transfers an assignment if exactly one duplicate is assigned; it aborts rather than discard conflicting assignments.
+
+Operators and admins can list unassigned `good` or `usable` episodes. Optional `task_name` and `quality` filters work, for example `GET /api/episodes/?task_name=pick%20cup&quality=good`. Episode lists use the same page-number pagination and response envelope.
+
+Assignment creation uses the episode business identifier, not its database primary key:
+
+```http
+POST /api/requests/1/assignments/
+Content-Type: application/json
+
+{"episode_id":"EP-00015"}
+```
+
+Only operators/admins can assign episodes. Bad-quality and already-assigned episodes are rejected. An episode can belong to at most one request.
+
+## Admin User Management
+
+Only authenticated users with role `admin` can use these endpoints:
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/users/` | List users. |
+| `POST` | `/api/users/` | Create a user with email, name, role, optional organisation, and password. |
+| `GET` | `/api/users/{id}/` | Retrieve a user. |
+| `PATCH` | `/api/users/{id}/` | Update profile, role, or active state. |
+| `POST` | `/api/users/{id}/deactivate/` | Soft-deactivate a user. |
+| `POST` | `/api/users/{id}/change-role/` | Change role with `{"role":"operator"}`. |
+
+Roles are `admin`, `operator`, and `client`; passwords use Django validation and hashing. Admins cannot deactivate themselves or remove their own admin role. The last active admin cannot be deactivated or demoted. Deactivation preserves request/status history and prevents future authentication.
+
+## Analytics
+
+`GET /api/analytics/?start_date=2026-08-01&end_date=2026-08-31` is available to authenticated operators and admins. Both dates are inclusive and must use `YYYY-MM-DD`.
+
+The response contains episodes grouped by recorded date and robot, request counts by current status for requests created in the range, the median delivery duration for delivered transitions in the range, and the top five task names by good episodes recorded in the range. Request creation in the `submitted` state is the submission timestamp; delivery time comes from the `StatusHistory` transition to `delivered`. PostgreSQL calculates the median with `PERCENTILE_CONT`; grouping and top-task counts are database aggregates. The implementation does not load entire episode/request tables into Python, though large date ranges still require database work and should be monitored at production scale.
+
+## Health and Request Logs
+
+`GET /health` is unauthenticated and returns `{"status":"ok"}` when the database is reachable. Each HTTP request emits one JSON log line to container stdout with `method`, `path`, `status`, `duration_ms`, and `user_id` (null for anonymous requests). Request bodies and credentials are not logged.
+
+## Tests
+
+Run the backend suite with Docker/PostgreSQL:
+
+```bash
+docker compose exec backend pytest
+```
+
+Tests cover authorization, transitions/history, importer idempotency and canonical IDs, assignments, admin user management, analytics, logging, pagination, and health checks.

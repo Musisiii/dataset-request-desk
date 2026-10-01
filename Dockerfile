@@ -12,6 +12,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+WORKDIR /app/backend
+
 RUN chmod +x /app/docker/backend-entrypoint.sh
 
 EXPOSE 8000
