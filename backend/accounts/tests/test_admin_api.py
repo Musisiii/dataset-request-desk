@@ -1,3 +1,5 @@
+import base64
+
 import pytest
 from django.contrib.auth import authenticate
 from rest_framework.test import APIClient
@@ -100,9 +102,10 @@ def test_admin_can_deactivate_user_and_inactive_user_cannot_authenticate():
 
     # Inactive user cannot access authenticated endpoints
     inactive_api = APIClient()
-    inactive_api.force_authenticate(target)
+    credentials = base64.b64encode(b"operator@example.com:target-password-123").decode("ascii")
+    inactive_api.credentials(HTTP_AUTHORIZATION=f"Basic {credentials}")
     request_list_response = inactive_api.get("/api/requests/")
-    # Force authenticate on inactive user in DRF fails authentication check or permissions
+    assert request_list_response.status_code == 401
     assert authenticate(email="operator@example.com", password="target-password-123") is None
 
 

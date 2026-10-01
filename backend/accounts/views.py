@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -27,8 +28,19 @@ class UserViewSet(viewsets.ModelViewSet):
             return ChangeRoleSerializer
         return UserSerializer
 
+    def lock_active_admin_ids(self):
+        return list(
+            User.objects.select_for_update()
+            .filter(role=User.Role.ADMIN, is_active=True)
+            .order_by("pk")
+            .values_list("pk", flat=True)
+        )
+
+    @transaction.atomic
     def perform_update(self, serializer):
-        user = self.get_object()
+        active_admin_ids = self.lock_active_admin_ids()
+        user = User.objects.select_for_update().get(pk=serializer.instance.pk)
+        serializer.instance = user
         new_is_active = serializer.validated_data.get("is_active")
         new_role = serializer.validated_data.get("role")
 
@@ -39,8 +51,7 @@ class UserViewSet(viewsets.ModelViewSet):
             raise ValidationError({"role": "Administrators cannot remove their own admin role."})
 
         if new_is_active is False or (new_role and new_role != User.Role.ADMIN and user.role == User.Role.ADMIN):
-            admin_count = User.objects.filter(role=User.Role.ADMIN, is_active=True).count()
-            if user.role == User.Role.ADMIN and user.is_active and admin_count <= 1:
+            if user.role == User.Role.ADMIN and user.is_active and len(active_admin_ids) <= 1:
                 raise ValidationError({"detail": "Cannot deactivate or demote the last active administrator."})
 
         instance = serializer.save()
@@ -49,13 +60,14 @@ class UserViewSet(viewsets.ModelViewSet):
             instance.save(update_fields=["is_staff"])
 
     @action(detail=True, methods=["post"], url_path="deactivate")
+    @transaction.atomic
     def deactivate(self, request, pk=None):
-        user = self.get_object()
+        active_admin_ids = self.lock_active_admin_ids()
+        user = User.objects.select_for_update().get(pk=self.get_object().pk)
         if user.pk == request.user.pk:
             raise ValidationError({"detail": "Administrators cannot deactivate their own account."})
 
-        admin_count = User.objects.filter(role=User.Role.ADMIN, is_active=True).count()
-        if user.role == User.Role.ADMIN and user.is_active and admin_count <= 1:
+        if user.role == User.Role.ADMIN and user.is_active and len(active_admin_ids) <= 1:
             raise ValidationError({"detail": "Cannot deactivate the last active administrator."})
 
         user.is_active = False
@@ -63,8 +75,10 @@ class UserViewSet(viewsets.ModelViewSet):
         return Response(UserSerializer(user).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="change-role")
+    @transaction.atomic
     def change_role(self, request, pk=None):
-        user = self.get_object()
+        active_admin_ids = self.lock_active_admin_ids()
+        user = User.objects.select_for_update().get(pk=self.get_object().pk)
         serializer = ChangeRoleSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         new_role = serializer.validated_data["role"]
@@ -73,8 +87,7 @@ class UserViewSet(viewsets.ModelViewSet):
             raise ValidationError({"role": "Administrators cannot remove their own admin role."})
 
         if new_role != User.Role.ADMIN and user.role == User.Role.ADMIN and user.is_active:
-            admin_count = User.objects.filter(role=User.Role.ADMIN, is_active=True).count()
-            if admin_count <= 1:
+            if len(active_admin_ids) <= 1:
                 raise ValidationError({"role": "Cannot demote the last active administrator."})
 
         user.role = new_role
