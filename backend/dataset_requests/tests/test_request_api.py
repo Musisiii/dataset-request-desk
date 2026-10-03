@@ -50,6 +50,10 @@ def test_client_creates_submitted_request_for_themselves():
     dataset_request = Request.objects.get(pk=response.data["id"])
     assert dataset_request.client == client_user
     assert dataset_request.status == Request.Status.SUBMITTED
+    initial_history = StatusHistory.objects.get(request=dataset_request)
+    assert initial_history.previous_status is None
+    assert initial_history.new_status == Request.Status.SUBMITTED
+    assert initial_history.changed_by == client_user
 
 
 @pytest.mark.django_db

@@ -42,7 +42,7 @@ class Request(models.Model):
 
 class StatusHistory(models.Model):
     request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="status_history")
-    previous_status = models.CharField(max_length=16, choices=Request.Status.choices)
+    previous_status = models.CharField(max_length=16, choices=Request.Status.choices, null=True, blank=True)
     new_status = models.CharField(max_length=16, choices=Request.Status.choices)
     changed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -55,7 +55,8 @@ class StatusHistory(models.Model):
         ordering = ["changed_at", "pk"]
         constraints = [
             models.CheckConstraint(
-                condition=models.Q(previous_status__in=["submitted", "in_progress", "delivered", "accepted", "rejected"]),
+                condition=models.Q(previous_status__isnull=True)
+                | models.Q(previous_status__in=["submitted", "in_progress", "delivered", "accepted", "rejected"]),
                 name="status_history_valid_previous_status",
             ),
             models.CheckConstraint(

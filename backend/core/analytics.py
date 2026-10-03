@@ -15,19 +15,32 @@ from episodes.models import Episode
 
 
 def calculate_median_delivery_time_seconds(start_datetime, end_datetime):
-    """Calculate the median time in seconds from request creation to delivery in the date range."""
+    """Calculate the median from each submission event to its first delivery event."""
     if connection.vendor == "postgresql":
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (
-                    ORDER BY EXTRACT(EPOCH FROM (sh.changed_at - r.created_at))
+                WITH fulfilment_cycles AS (
+                    SELECT EXTRACT(EPOCH FROM (delivered.changed_at - submitted.changed_at)) AS seconds
+                    FROM dataset_requests_statushistory submitted
+                    JOIN dataset_requests_statushistory delivered
+                      ON delivered.request_id = submitted.request_id
+                     AND delivered.new_status = 'delivered'
+                     AND (delivered.changed_at, delivered.id) > (submitted.changed_at, submitted.id)
+                    WHERE submitted.new_status = 'submitted'
+                      AND delivered.changed_at >= %s
+                      AND delivered.changed_at <= %s
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM dataset_requests_statushistory intermediate
+                          WHERE intermediate.request_id = submitted.request_id
+                            AND intermediate.new_status IN ('submitted', 'delivered')
+                            AND (intermediate.changed_at, intermediate.id) > (submitted.changed_at, submitted.id)
+                            AND (intermediate.changed_at, intermediate.id) < (delivered.changed_at, delivered.id)
+                      )
                 )
-                FROM dataset_requests_statushistory sh
-                INNER JOIN dataset_requests_request r ON sh.request_id = r.id
-                WHERE sh.new_status = 'delivered'
-                  AND sh.changed_at >= %s
-                  AND sh.changed_at <= %s
+                SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY seconds)
+                FROM fulfilment_cycles
                 """,
                 [start_datetime, end_datetime],
             )
@@ -38,18 +51,39 @@ def calculate_median_delivery_time_seconds(start_datetime, end_datetime):
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                WITH delivery_times AS (
-                    SELECT (julianday(sh.changed_at) - julianday(r.created_at)) * 86400.0 AS seconds
-                    FROM dataset_requests_statushistory sh
-                    INNER JOIN dataset_requests_request r ON sh.request_id = r.id
-                    WHERE sh.new_status = 'delivered'
-                      AND sh.changed_at >= %s
-                      AND sh.changed_at <= %s
+                WITH fulfilment_cycles AS (
+                    SELECT
+                        (julianday(delivered.changed_at) - julianday(submitted.changed_at)) * 86400.0 AS seconds
+                    FROM dataset_requests_statushistory submitted
+                    JOIN dataset_requests_statushistory delivered
+                      ON delivered.request_id = submitted.request_id
+                     AND delivered.new_status = 'delivered'
+                     AND (
+                         delivered.changed_at > submitted.changed_at
+                         OR (delivered.changed_at = submitted.changed_at AND delivered.id > submitted.id)
+                     )
+                    WHERE submitted.new_status = 'submitted'
+                      AND delivered.changed_at >= %s
+                      AND delivered.changed_at <= %s
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM dataset_requests_statushistory intermediate
+                          WHERE intermediate.request_id = submitted.request_id
+                            AND intermediate.new_status IN ('submitted', 'delivered')
+                            AND (
+                                intermediate.changed_at > submitted.changed_at
+                                OR (intermediate.changed_at = submitted.changed_at AND intermediate.id > submitted.id)
+                            )
+                            AND (
+                                intermediate.changed_at < delivered.changed_at
+                                OR (intermediate.changed_at = delivered.changed_at AND intermediate.id < delivered.id)
+                            )
+                      )
                 ), ranked_times AS (
                     SELECT seconds,
                            ROW_NUMBER() OVER (ORDER BY seconds) AS row_number,
                            COUNT(*) OVER () AS total
-                    FROM delivery_times
+                    FROM fulfilment_cycles
                 )
                 SELECT AVG(seconds)
                 FROM ranked_times

@@ -33,6 +33,17 @@ def local_datetime(day, hour=12):
     return timezone.make_aware(datetime(2026, 8, day, hour))
 
 
+def history_event(dataset_request, actor, previous_status, new_status, changed_at):
+    event = StatusHistory.objects.create(
+        request=dataset_request,
+        previous_status=previous_status,
+        new_status=new_status,
+        changed_by=actor,
+    )
+    StatusHistory.objects.filter(pk=event.pk).update(changed_at=changed_at)
+    return event
+
+
 def analytics_client(user):
     client = APIClient()
     client.force_authenticate(user)
@@ -85,13 +96,27 @@ def test_analytics_aggregates_episodes_statuses_median_and_top_five():
             delivered_requests.append(dataset_request)
 
     for dataset_request, delivered_day in zip(delivered_requests, (12, 14)):
-        history = StatusHistory.objects.create(
-            request=dataset_request,
-            previous_status=Request.Status.IN_PROGRESS,
-            new_status=Request.Status.DELIVERED,
-            changed_by=operator,
+        history_event(
+            dataset_request,
+            operator,
+            None,
+            Request.Status.SUBMITTED,
+            local_datetime(10),
         )
-        StatusHistory.objects.filter(pk=history.pk).update(changed_at=local_datetime(delivered_day))
+        history_event(
+            dataset_request,
+            operator,
+            Request.Status.SUBMITTED,
+            Request.Status.IN_PROGRESS,
+            local_datetime(10),
+        )
+        history_event(
+            dataset_request,
+            operator,
+            Request.Status.IN_PROGRESS,
+            Request.Status.DELIVERED,
+            local_datetime(delivered_day),
+        )
 
     response = analytics_client(operator).get(
         f"/api/analytics/?start_date={START_DATE}&end_date={END_DATE}"
@@ -119,6 +144,138 @@ def test_analytics_aggregates_episodes_statuses_median_and_top_five():
         "open drawer",
     ]
     assert response.data["top_tasks_by_good_episodes"][0]["good_episodes_count"] == 5
+
+
+@pytest.mark.django_db
+def test_median_uses_submitted_history_timestamp_not_request_creation():
+    operator = make_user("operator@example.com", User.Role.OPERATOR)
+    client_user = make_user("client@example.com", User.Role.CLIENT)
+    dataset_request = Request.objects.create(
+        client=client_user,
+        task_name="pick cup",
+        episodes_requested=1,
+        deadline="2026-12-01",
+        status=Request.Status.DELIVERED,
+    )
+    Request.objects.filter(pk=dataset_request.pk).update(created_at=local_datetime(1))
+    history_event(dataset_request, operator, None, Request.Status.SUBMITTED, local_datetime(10))
+    history_event(
+        dataset_request,
+        operator,
+        Request.Status.SUBMITTED,
+        Request.Status.IN_PROGRESS,
+        local_datetime(10),
+    )
+    history_event(
+        dataset_request,
+        operator,
+        Request.Status.IN_PROGRESS,
+        Request.Status.DELIVERED,
+        local_datetime(12),
+    )
+
+    response = analytics_client(operator).get(
+        f"/api/analytics/?start_date={START_DATE}&end_date={END_DATE}"
+    )
+
+    assert response.status_code == 200
+    assert response.data["request_fulfilment"]["median_seconds_to_deliver"] == 172800.0
+
+
+@pytest.mark.django_db
+def test_rework_delivery_does_not_reuse_submission_as_a_second_cycle():
+    operator = make_user("operator@example.com", User.Role.OPERATOR)
+    client_user = make_user("client@example.com", User.Role.CLIENT)
+    dataset_request = Request.objects.create(
+        client=client_user,
+        task_name="fold towel",
+        episodes_requested=1,
+        deadline="2026-12-01",
+        status=Request.Status.DELIVERED,
+    )
+    history_event(dataset_request, operator, None, Request.Status.SUBMITTED, local_datetime(10))
+    history_event(
+        dataset_request,
+        operator,
+        Request.Status.SUBMITTED,
+        Request.Status.IN_PROGRESS,
+        local_datetime(10),
+    )
+    history_event(
+        dataset_request,
+        operator,
+        Request.Status.IN_PROGRESS,
+        Request.Status.DELIVERED,
+        local_datetime(11),
+    )
+    history_event(
+        dataset_request,
+        client_user,
+        Request.Status.DELIVERED,
+        Request.Status.REJECTED,
+        local_datetime(12),
+    )
+    history_event(
+        dataset_request,
+        operator,
+        Request.Status.REJECTED,
+        Request.Status.IN_PROGRESS,
+        local_datetime(13),
+    )
+    history_event(
+        dataset_request,
+        operator,
+        Request.Status.IN_PROGRESS,
+        Request.Status.DELIVERED,
+        local_datetime(14),
+    )
+
+    response = analytics_client(operator).get(
+        f"/api/analytics/?start_date={START_DATE}&end_date={END_DATE}"
+    )
+
+    assert response.status_code == 200
+    assert response.data["request_fulfilment"]["median_seconds_to_deliver"] == 86400.0
+
+
+@pytest.mark.django_db
+def test_delivery_median_includes_start_and_end_date_boundaries():
+    operator = make_user("operator@example.com", User.Role.OPERATOR)
+    client_user = make_user("client@example.com", User.Role.CLIENT)
+    boundary_times = [
+        (timezone.make_aware(datetime(2026, 8, 9, 23)), timezone.make_aware(datetime(2026, 8, 10, 0))),
+        (timezone.make_aware(datetime(2026, 8, 14, 22, 59, 59, 999999)), timezone.make_aware(datetime(2026, 8, 14, 23, 59, 59, 999999))),
+    ]
+    for index, (submitted_at, delivered_at) in enumerate(boundary_times):
+        dataset_request = Request.objects.create(
+            client=client_user,
+            task_name=f"boundary task {index}",
+            episodes_requested=1,
+            deadline="2026-12-01",
+            status=Request.Status.DELIVERED,
+        )
+        history_event(dataset_request, operator, None, Request.Status.SUBMITTED, submitted_at)
+        history_event(
+            dataset_request,
+            operator,
+            Request.Status.SUBMITTED,
+            Request.Status.IN_PROGRESS,
+            submitted_at,
+        )
+        history_event(
+            dataset_request,
+            operator,
+            Request.Status.IN_PROGRESS,
+            Request.Status.DELIVERED,
+            delivered_at,
+        )
+
+    response = analytics_client(operator).get(
+        f"/api/analytics/?start_date={START_DATE}&end_date={END_DATE}"
+    )
+
+    assert response.status_code == 200
+    assert response.data["request_fulfilment"]["median_seconds_to_deliver"] == 3600.0
 
 
 @pytest.mark.django_db

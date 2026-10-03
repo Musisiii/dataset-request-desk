@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models import Count
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -8,7 +9,7 @@ from accounts.models import User
 from episodes.serializers import AssignmentCreateSerializer, AssignmentSerializer
 from episodes.services import assign_episode
 
-from .models import Request
+from .models import Request, StatusHistory
 from .serializers import RequestSerializer, TransitionSerializer
 from .services import transition_request
 
@@ -30,8 +31,15 @@ class RequestViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("Only clients can create requests.")
         return super().create(request, *args, **kwargs)
 
+    @transaction.atomic
     def perform_create(self, serializer):
-        serializer.save(client=self.request.user)
+        dataset_request = serializer.save(client=self.request.user)
+        StatusHistory.objects.create(
+            request=dataset_request,
+            previous_status=None,
+            new_status=Request.Status.SUBMITTED,
+            changed_by=self.request.user,
+        )
 
     @action(detail=True, methods=["post"], url_path="transition")
     def transition(self, request, pk=None):
