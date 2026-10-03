@@ -1,0 +1,57 @@
+:root {
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  color: #1c2925;
+  background: #f3f5f2;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --ink: #1c2925;
+  --muted: #68756f;
+  --line: #d8dfda;
+  --paper: #ffffff;
+  --ground: #f3f5f2;
+  --green: #17644d;
+  --green-soft: #e2f0e9;
+  --amber: #925d16;
+  --amber-soft: #fbf0da;
+  --red: #a43f39;
+  --red-soft: #fae8e5;
+  --mono: "IBM Plex Mono", "SFMono-Regular", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  margin: 0;
+  background: var(--ground);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.app-frame {
+  width: min(100% - 40px, 1180px);
+  margin: 72px auto;
+}
+
+.eyebrow {
+  color: var(--green);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-transform: uppercase;
+}

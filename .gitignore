@@ -8,3 +8,5 @@ htmlcov/
 db.sqlite3
 postgres_data/
 staticfiles/
+/frontend/node_modules/
+/frontend/dist/
