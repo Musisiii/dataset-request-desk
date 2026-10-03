@@ -37,6 +37,8 @@ export default function RequestsPage({ session, onNotice, onConfirm, onOpenAssig
   const [allocationFilter, setAllocationFilter] = useState("all");
   const [deadlineAfter, setDeadlineAfter] = useState("");
   const [deadlineBefore, setDeadlineBefore] = useState("");
+  const [submittedFrom, setSubmittedFrom] = useState("");
+  const [submittedTo, setSubmittedTo] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -48,30 +50,27 @@ export default function RequestsPage({ session, onNotice, onConfirm, onOpenAssig
       status: statusFilter,
       deadlineAfter,
       deadlineBefore,
+      submittedFrom,
+      submittedTo,
       allocationState: allocationFilter,
     })
       .then((data) => active && setPageData(data))
-      .catch((requestError) => active && setError(requestError.message))
+      .catch((requestError) => {
+        if (!active) return;
+        setError(requestError.message);
+        onNotice(requestError.message, "error");
+      })
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [page, refreshSignal, taskFilter, statusFilter, deadlineAfter, deadlineBefore, allocationFilter]);
+  }, [page, refreshSignal, taskFilter, statusFilter, deadlineAfter, deadlineBefore, submittedFrom, submittedTo, allocationFilter]);
 
   async function submitRequest(values) {
     const created = await createRequest(values);
     setShowForm(false);
     setPage(1);
     onNotice("Request submitted.");
-    onCreated(created.id);
-  }
-
-  function onCreated(id) {
-    setSelectedId(id);
-    setPageData(null);
-    setLoading(true);
-    getRequests({ page: 1 })
-      .then(setPageData)
-      .catch((requestError) => setError(requestError.message))
-      .finally(() => setLoading(false));
+    setSelectedId(created.id);
+    onRequestChanged();
   }
 
   const isClient = session.role === "client";
@@ -91,7 +90,13 @@ export default function RequestsPage({ session, onNotice, onConfirm, onOpenAssig
         )}
       </section>
 
-      {showForm && <RequestForm onCreate={submitRequest} onCancel={() => setShowForm(false)} />}
+      {showForm && (
+        <RequestForm
+          onCreate={submitRequest}
+          onCancel={() => setShowForm(false)}
+          onError={(message) => onNotice(message, "error")}
+        />
+      )}
       {error && <div className="notice notice--error" role="alert">{error}</div>}
 
       <section className="table-panel" aria-label="Requests">
@@ -126,6 +131,14 @@ export default function RequestsPage({ session, onNotice, onConfirm, onOpenAssig
           <label className="filter-control filter-control--compact">
             <span>Deadline to</span>
             <input type="date" value={deadlineBefore} onChange={(event) => { setPage(1); setDeadlineBefore(event.target.value); }} />
+          </label>
+          <label className="filter-control filter-control--compact">
+            <span>Submitted from</span>
+            <input type="date" value={submittedFrom} onChange={(event) => { setPage(1); setSubmittedFrom(event.target.value); }} />
+          </label>
+          <label className="filter-control filter-control--compact">
+            <span>Submitted to</span>
+            <input type="date" value={submittedTo} onChange={(event) => { setPage(1); setSubmittedTo(event.target.value); }} />
           </label>
         </div>
 
@@ -164,7 +177,10 @@ export default function RequestsPage({ session, onNotice, onConfirm, onOpenAssig
                         <span className="allocation-number">{request.assigned_episodes_count} / {request.episodes_requested}</span>
                         <span className="table-secondary">assigned</span>
                       </td>
-                      <td className={`deadline-cell deadline-cell--${deadlineState}`}>{request.deadline}</td>
+                      <td className={`deadline-cell deadline-cell--${deadlineState}`}>
+                        {request.deadline}
+                        {deadlineState !== "normal" && <span className={`deadline-indicator deadline-indicator--${deadlineState}`}>{deadlineState === "overdue" ? "Overdue" : "Due soon"}</span>}
+                      </td>
                       <td><StatusBadge status={request.status} /></td>
                       <td>{new Date(request.created_at).toLocaleDateString()}</td>
                       <td className="table-actions">
@@ -196,10 +212,17 @@ export default function RequestsPage({ session, onNotice, onConfirm, onOpenAssig
           role={session.role}
           onConfirm={onConfirm}
           onAssign={onOpenAssignments}
-          onChanged={() => {
-            onNotice("Request status updated.");
+          onChanged={(status) => {
+            const messages = {
+              in_progress: "Request moved to in progress.",
+              delivered: "Request delivered successfully.",
+              accepted: "Request accepted successfully.",
+              rejected: "Request rejected and returned for rework.",
+            };
+            onNotice(messages[status] || "Request status updated.");
             onRequestChanged();
           }}
+          onNotice={onNotice}
           onClose={() => setSelectedId(null)}
         />
       )}

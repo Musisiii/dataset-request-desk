@@ -143,9 +143,10 @@ export default function App() {
                   onTargetRequest={setTargetRequest}
                   onNotice={notify}
                   onChanged={() => setRefreshSignal((value) => value + 1)}
+                  onConfirm={askConfirmation}
                 />
               )}
-              {view === "analytics" && (session.role === "operator" || session.role === "admin") && <AnalyticsPage />}
+              {view === "analytics" && (session.role === "operator" || session.role === "admin") && <AnalyticsPage onNotice={notify} />}
               {view === "users" && session.role === "admin" && <AdminUsersPage session={session} onNotice={notify} onConfirm={askConfirmation} />}
             </>
           )}

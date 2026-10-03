@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import OverlayModal from "./OverlayModal.jsx";
 
 function toDateInput(value) {
   const year = value.getFullYear();
@@ -7,7 +8,7 @@ function toDateInput(value) {
   return `${year}-${month}-${day}`;
 }
 
-export default function RequestForm({ onCreate, onCancel }) {
+export default function RequestForm({ onCreate, onCancel, onError }) {
   const [values, setValues] = useState({ task_name: "", episodes_requested: "", deadline: "", notes: "" });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
@@ -18,7 +19,12 @@ export default function RequestForm({ onCreate, onCancel }) {
     return values.deadline >= today;
   }, [values.deadline]);
 
-  const submitDisabled = loading || !values.task_name.trim() || !String(values.episodes_requested).trim() || Number(values.episodes_requested) < 1 || !isValidDeadline;
+  const episodeCount = Number(values.episodes_requested);
+  const submitDisabled = loading || !values.task_name.trim() || !String(values.episodes_requested).trim()
+    || !Number.isInteger(episodeCount) || episodeCount < 1 || !isValidDeadline;
+  const closeModal = () => {
+    if (!loading) onCancel();
+  };
 
   function update(field, value) {
     setValues((current) => ({ ...current, [field]: value }));
@@ -31,7 +37,7 @@ export default function RequestForm({ onCreate, onCancel }) {
       setErrors({ task_name: "Task name is required." });
       return;
     }
-    if (!String(values.episodes_requested).trim() || Number(values.episodes_requested) < 1) {
+    if (!String(values.episodes_requested).trim() || !Number.isInteger(Number(values.episodes_requested)) || Number(values.episodes_requested) < 1) {
       setErrors({ episodes_requested: "Episodes requested must be at least 1." });
       return;
     }
@@ -44,6 +50,7 @@ export default function RequestForm({ onCreate, onCancel }) {
     try {
       await onCreate({ ...values, episodes_requested: Number(values.episodes_requested) });
     } catch (error) {
+      onError?.(error.message);
       if (error.data && typeof error.data === "object") {
         const fieldErrors = Object.fromEntries(
           Object.entries(error.data).map(([key, value]) => [key, Array.isArray(value) ? value.join(" ") : String(value)]),
@@ -58,14 +65,8 @@ export default function RequestForm({ onCreate, onCancel }) {
   }
 
   return (
-    <section className="form-panel" aria-labelledby="new-request-title">
-      <div className="panel-heading">
-        <div>
-          <p className="eyebrow">New intake</p>
-          <h2 id="new-request-title">Create request</h2>
-        </div>
-        <button className="button button--quiet" type="button" onClick={onCancel}>Close</button>
-      </div>
+    <OverlayModal title="Create request" onClose={closeModal}>
+      <p className="eyebrow">New intake</p>
       {errors.form && <div className="notice notice--error" role="alert">{errors.form}</div>}
       <form className="form-grid" onSubmit={handleSubmit}>
         <label className="field field--wide">
@@ -80,8 +81,8 @@ export default function RequestForm({ onCreate, onCancel }) {
         </label>
         <label className="field">
           <span>Deadline <span className="required-mark" aria-hidden="true">*</span></span>
-          <input aria-label="Deadline" type="date" value={values.deadline} onChange={(event) => update("deadline", event.target.value)} required aria-invalid={Boolean(errors.deadline) || !isValidDeadline} />
-          {(errors.deadline || !isValidDeadline) && <span className="field-error">{errors.deadline || "Deadline cannot be in the past."}</span>}
+          <input aria-label="Deadline" type="date" value={values.deadline} onChange={(event) => update("deadline", event.target.value)} required aria-invalid={Boolean(errors.deadline) || Boolean(values.deadline && !isValidDeadline)} />
+          {(errors.deadline || (values.deadline && !isValidDeadline)) && <span className="field-error">{errors.deadline || "Deadline cannot be in the past."}</span>}
         </label>
         <label className="field field--wide">
           Notes
@@ -89,11 +90,12 @@ export default function RequestForm({ onCreate, onCancel }) {
           {errors.notes && <span className="field-error">{errors.notes}</span>}
         </label>
         <div className="form-actions field--wide">
+          <button className="button button--quiet" type="button" onClick={closeModal} disabled={loading}>Cancel</button>
           <button className="button button--primary" type="submit" disabled={submitDisabled}>
             {loading ? "Submitting…" : "Submit request"}
           </button>
         </div>
       </form>
-    </section>
+    </OverlayModal>
   );
 }

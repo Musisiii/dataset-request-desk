@@ -133,6 +133,8 @@ export function getRequests(pageOrOptions = 1, maybeOptions = {}) {
   if (options.status && options.status !== "all") query.set("status", options.status);
   if (options.deadlineAfter) query.set("deadline_after", options.deadlineAfter);
   if (options.deadlineBefore) query.set("deadline_before", options.deadlineBefore);
+  if (options.submittedFrom) query.set("submitted_from", options.submittedFrom);
+  if (options.submittedTo) query.set("submitted_to", options.submittedTo);
   if (options.allocationState && options.allocationState !== "all") query.set("allocation_state", options.allocationState);
   return apiRequest(`/requests/?${query.toString()}`);
 }
@@ -149,11 +151,13 @@ export function transitionRequest(id, status, reason = "") {
   return apiRequest(`/requests/${id}/transition/`, { method: "POST", body: { status, ...(reason ? { reason } : {}) } });
 }
 
-export function getEpisodes({ page = 1, taskName = "", quality = "", search = "" } = {}) {
+export function getEpisodes({ page = 1, taskName = "", quality = "", search = "", duration = "", recordedDate = "" } = {}) {
   const query = new URLSearchParams({ page: String(page) });
   if (taskName.trim()) query.set("task_name", taskName.trim());
   if (quality) query.set("quality", quality);
   if (search.trim()) query.set("search", search.trim());
+  if (duration.trim()) query.set("duration", duration.trim());
+  if (recordedDate) query.set("recorded_date", recordedDate);
   return apiRequest(`/episodes/?${query.toString()}`);
 }
 

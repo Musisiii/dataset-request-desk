@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 
 import { changeUserRole, createUser, deactivateUser, getUsers } from "../api.js";
+import OverlayModal from "./OverlayModal.jsx";
 import Pagination from "./Pagination.jsx";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 15;
 
 export default function AdminUsersPage({ session, onNotice, onConfirm }) {
   const [page, setPage] = useState(1);
@@ -22,6 +23,7 @@ export default function AdminUsersPage({ session, onNotice, onConfirm }) {
       setPageData(await getUsers(page));
     } catch (requestError) {
       setError(requestError.message);
+      onNotice(requestError.message, "error");
     } finally {
       setLoading(false);
     }
@@ -42,6 +44,7 @@ export default function AdminUsersPage({ session, onNotice, onConfirm }) {
       await loadUsers();
     } catch (requestError) {
       setError(requestError.message);
+      onNotice(requestError.message, "error");
     } finally {
       setBusyId(null);
     }
@@ -58,6 +61,7 @@ export default function AdminUsersPage({ session, onNotice, onConfirm }) {
       await loadUsers();
     } catch (requestError) {
       setError(requestError.message);
+      onNotice(requestError.message, "error");
     } finally {
       setBusyId(null);
     }
@@ -79,6 +83,7 @@ export default function AdminUsersPage({ session, onNotice, onConfirm }) {
       await loadUsers();
     } catch (requestError) {
       setError(requestError.message);
+      onNotice(requestError.message, "error");
     } finally {
       setBusyId(null);
     }
@@ -93,23 +98,29 @@ export default function AdminUsersPage({ session, onNotice, onConfirm }) {
           <p className="muted">Manage account roles and active status.</p>
         </div>
         <button className="button button--primary" type="button" onClick={() => setShowForm((visible) => !visible)}>
-          {showForm ? "Close form" : "Create user"}
+          Create user
         </button>
       </section>
 
-      {error && <div className="notice notice--error" role="alert">{error}</div>}
+      {error && !showForm && <div className="notice notice--error" role="alert">{error}</div>}
       {showForm && (
-        <section className="form-panel">
-          <div className="panel-heading"><div><p className="eyebrow">New account</p><h2>Create user</h2></div></div>
+        <OverlayModal title="Create user" onClose={() => busyId !== "create" && setShowForm(false)}>
+          <p className="eyebrow">New account</p>
+          {error && <div className="notice notice--error" role="alert">{error}</div>}
           <form className="form-grid" onSubmit={handleCreate}>
             <label className="field">Name<input value={values.name} onChange={(event) => setValues({ ...values, name: event.target.value })} required /></label>
             <label className="field">Email<input type="email" autoComplete="off" value={values.email} onChange={(event) => setValues({ ...values, email: event.target.value })} required /></label>
             <label className="field">Temporary password<input type="password" autoComplete="new-password" value={values.password} onChange={(event) => setValues({ ...values, password: event.target.value })} required /></label>
             <label className="field">Role<select value={values.role} onChange={(event) => setValues({ ...values, role: event.target.value })}><option value="client">Client</option><option value="operator">Operator</option><option value="admin">Admin</option></select></label>
             <label className="field field--wide">Organisation<input value={values.organisation} onChange={(event) => setValues({ ...values, organisation: event.target.value })} /></label>
-            <div className="form-actions field--wide"><button className="button button--primary" type="submit" disabled={busyId === "create"}>{busyId === "create" ? "Creating…" : "Create account"}</button></div>
+            <div className="form-actions field--wide">
+              <button className="button button--quiet" type="button" onClick={() => setShowForm(false)} disabled={busyId === "create"}>Cancel</button>
+              <button className="button button--primary" type="submit" disabled={busyId === "create" || !values.name.trim() || !values.email.trim() || !values.password}>
+                {busyId === "create" ? "Creating…" : "Create account"}
+              </button>
+            </div>
           </form>
-        </section>
+        </OverlayModal>
       )}
 
       <section className="table-panel" aria-label="Users">

@@ -1,5 +1,10 @@
+import { useEffect, useState } from "react";
+
 export default function Pagination({ page, count, pageSize = 15, onChange }) {
   const pageCount = Math.max(1, Math.ceil(count / pageSize));
+  const [jumpPage, setJumpPage] = useState(String(page));
+
+  useEffect(() => setJumpPage(String(page)), [page]);
 
   function getVisiblePages() {
     if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1);
@@ -41,6 +46,26 @@ export default function Pagination({ page, count, pageSize = 15, onChange }) {
         <button className="button button--quiet" type="button" onClick={() => onChange(page + 1)} disabled={page >= pageCount}>
           Next
         </button>
+        <form
+          className="pagination__jump"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const target = Number(jumpPage);
+            if (Number.isInteger(target) && target >= 1 && target <= pageCount) onChange(target);
+          }}
+        >
+          <label htmlFor="pagination-jump">Go to page</label>
+          <input
+            id="pagination-jump"
+            aria-label="Go to page"
+            type="number"
+            min="1"
+            max={pageCount}
+            value={jumpPage}
+            onChange={(event) => setJumpPage(event.target.value)}
+          />
+          <button className="button button--quiet button--small" type="submit">Go</button>
+        </form>
       </div>
     </div>
   );

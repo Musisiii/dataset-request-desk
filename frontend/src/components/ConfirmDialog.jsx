@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { isTopDialog, registerDialog } from "./dialogStack.js";
 
 export default function ConfirmDialog({
   open,
@@ -16,9 +17,12 @@ export default function ConfirmDialog({
   useEffect(() => {
     if (!open) return undefined;
     const previouslyFocused = document.activeElement;
+    const dialog = dialogRef.current;
+    const unregisterDialog = registerDialog(dialog);
     confirmRef.current?.focus();
 
     function handleKeyDown(event) {
+      if (!isTopDialog(dialog)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         onCancel();
@@ -40,6 +44,7 @@ export default function ConfirmDialog({
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
+      unregisterDialog();
       previouslyFocused?.focus?.();
     };
   }, [open, onCancel]);

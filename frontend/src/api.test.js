@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiRequest, formatApiError, login, readSession } from "./api.js";
+import { ApiError, apiRequest, formatApiError, getEpisodes, getRequests, login, readSession } from "./api.js";
 
 function response(status, body) {
   return {
@@ -13,6 +13,34 @@ function response(status, body) {
 describe("API authentication", () => {
   beforeEach(() => {
     sessionStorage.clear();
+  });
+
+  describe("API filters", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("sends server-side submission date and full episode search parameters", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(response(200, { count: 0, results: [] }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await getRequests({ page: 2, submittedFrom: "2026-10-01", submittedTo: "2026-10-03" });
+      await getEpisodes({
+        page: 3,
+        taskName: "up",
+        quality: "good",
+        search: "EP-42",
+        duration: "43",
+        recordedDate: "2026-10-01",
+      });
+
+      expect(fetchMock.mock.calls[0][0]).toContain("submitted_from=2026-10-01");
+      expect(fetchMock.mock.calls[0][0]).toContain("submitted_to=2026-10-03");
+      expect(fetchMock.mock.calls[1][0]).toContain("task_name=up");
+      expect(fetchMock.mock.calls[1][0]).toContain("search=EP-42");
+      expect(fetchMock.mock.calls[1][0]).toContain("duration=43");
+      expect(fetchMock.mock.calls[1][0]).toContain("recorded_date=2026-10-01");
+    });
   });
 
   afterEach(() => {

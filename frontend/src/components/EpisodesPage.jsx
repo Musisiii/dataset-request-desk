@@ -1,19 +1,22 @@
 import { useEffect, useState } from "react";
 
-import { assignEpisode, getEpisodes, getRequest } from "../api.js";
+import { assignEpisode, getEpisodes, getRequest, transitionRequest } from "../api.js";
 import Pagination from "./Pagination.jsx";
 
 const PAGE_SIZE = 15;
 
-export default function EpisodesPage({ targetRequest, onTargetRequest, onNotice, onChanged }) {
+export default function EpisodesPage({ targetRequest, onTargetRequest, onNotice, onChanged, onConfirm }) {
   const [page, setPage] = useState(1);
-  const [taskDraft, setTaskDraft] = useState("");
-  const [qualityDraft, setQualityDraft] = useState("");
+  const [taskName, setTaskName] = useState("");
+  const [quality, setQuality] = useState("");
   const [searchDraft, setSearchDraft] = useState("");
-  const [filters, setFilters] = useState({ taskName: "", quality: "", search: "" });
+  const [duration, setDuration] = useState("");
+  const [recordedDate, setRecordedDate] = useState("");
+  const [filters, setFilters] = useState({ taskName: "", quality: "", search: "", duration: "", recordedDate: "" });
   const [pageData, setPageData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busyEpisode, setBusyEpisode] = useState("");
+  const [busyDelivery, setBusyDelivery] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -22,15 +25,23 @@ export default function EpisodesPage({ targetRequest, onTargetRequest, onNotice,
     setError("");
     getEpisodes({ page, ...filters })
       .then((data) => active && setPageData(data))
-      .catch((requestError) => active && setError(requestError.message))
+      .catch((requestError) => {
+        if (!active) return;
+        setError(requestError.message);
+        onNotice(requestError.message, "error");
+      })
       .finally(() => active && setLoading(false));
     return () => { active = false; };
   }, [page, filters]);
 
-  function applyFilters(event) {
-    event.preventDefault();
+  function updateFilter(name, value) {
     setPage(1);
-    setFilters({ taskName: taskDraft, quality: qualityDraft, search: searchDraft });
+    if (name === "taskName") setTaskName(value);
+    if (name === "quality") setQuality(value);
+    if (name === "search") setSearchDraft(value);
+    if (name === "duration") setDuration(value);
+    if (name === "recordedDate") setRecordedDate(value);
+    setFilters((current) => ({ ...current, [name]: value }));
   }
 
   async function handleAssign(episode) {
@@ -47,13 +58,38 @@ export default function EpisodesPage({ targetRequest, onTargetRequest, onNotice,
       setPageData(refreshed);
     } catch (requestError) {
       setError(requestError.message);
+      onNotice(requestError.message, "error");
     } finally {
       setBusyEpisode("");
     }
   }
 
-  const canAssign = targetRequest?.status === "in_progress";
-  const canDeliver = targetRequest && targetRequest.assigned_episodes_count >= targetRequest.episodes_requested;
+  async function handleDeliver() {
+    if (!targetRequest || busyDelivery) return;
+    const confirmed = await onConfirm({
+      title: "Deliver this request?",
+      message: "This will make the assigned episodes available to the client for review.",
+      confirmLabel: "Deliver request",
+    });
+    if (!confirmed) return;
+    setBusyDelivery(true);
+    setError("");
+    try {
+      const updatedRequest = await transitionRequest(targetRequest.id, "delivered");
+      onTargetRequest(updatedRequest);
+      onChanged();
+      onNotice("Request delivered successfully.");
+    } catch (requestError) {
+      setError(requestError.message);
+      onNotice(requestError.message, "error");
+    } finally {
+      setBusyDelivery(false);
+    }
+  }
+
+  const canAssign = targetRequest?.status === "in_progress" && !busyDelivery;
+  const canDeliver = targetRequest?.status === "in_progress"
+    && targetRequest.assigned_episodes_count >= targetRequest.episodes_requested;
 
   return (
     <div className="page-stack">
@@ -76,8 +112,8 @@ export default function EpisodesPage({ targetRequest, onTargetRequest, onNotice,
             <strong>{targetRequest.assigned_episodes_count} / {targetRequest.episodes_requested}</strong>
           </div>
           {canDeliver && (
-            <button className="button button--secondary" type="button" onClick={() => onChanged()}>
-              Deliver request now
+            <button className="button button--primary" type="button" disabled={busyDelivery} onClick={handleDeliver}>
+              {busyDelivery ? "Delivering…" : "Deliver request now"}
             </button>
           )}
           <button className="button button--quiet" type="button" onClick={() => onTargetRequest(null)}>Clear target</button>
@@ -87,24 +123,31 @@ export default function EpisodesPage({ targetRequest, onTargetRequest, onNotice,
       )}
 
       <section className="table-panel">
-        <form className="filter-row episode-filters" onSubmit={applyFilters}>
+        <form className="filter-row episode-filters" onSubmit={(event) => event.preventDefault()}>
           <label className="filter-control">
             <span>Search</span>
-            <input value={searchDraft} onChange={(event) => { setSearchDraft(event.target.value); setPage(1); setFilters((current) => ({ ...current, search: event.target.value })); }} placeholder="episode ID, robot, task, operator" />
+            <input value={searchDraft} onChange={(event) => updateFilter("search", event.target.value)} placeholder="episode ID, robot, task, operator, quality" />
           </label>
           <label className="filter-control">
             <span>Task name</span>
-            <input value={taskDraft} onChange={(event) => setTaskDraft(event.target.value)} placeholder="e.g. pick cup" />
+            <input value={taskName} onChange={(event) => updateFilter("taskName", event.target.value)} placeholder="Filter tasks as you type" />
+          </label>
+          <label className="filter-control filter-control--compact">
+            <span>Duration (seconds)</span>
+            <input inputMode="numeric" value={duration} onChange={(event) => updateFilter("duration", event.target.value)} placeholder="e.g. 43" />
+          </label>
+          <label className="filter-control filter-control--compact">
+            <span>Recorded date</span>
+            <input type="date" value={recordedDate} onChange={(event) => updateFilter("recordedDate", event.target.value)} />
           </label>
           <label className="filter-control filter-control--compact">
             <span>Quality</span>
-            <select value={qualityDraft} onChange={(event) => setQualityDraft(event.target.value)}>
+            <select value={quality} onChange={(event) => updateFilter("quality", event.target.value)}>
               <option value="">Good and usable</option>
               <option value="good">Good</option>
               <option value="usable">Usable</option>
             </select>
           </label>
-          <button className="button button--secondary" type="submit">Apply filters</button>
         </form>
         {error && <div className="notice notice--error" role="alert">{error}</div>}
         {loading ? (
