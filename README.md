@@ -1,6 +1,8 @@
 # Dataset Request Desk
 
-Dataset Request Desk is an internal platform for managing robotics data requests, episode metadata, assignment, and client acceptance. The backend uses Python, Django, and Django REST Framework; the frontend uses React and Vite; Docker Compose runs PostgreSQL. SQLite is available for local backend development.
+Dataset Request Desk replaces spreadsheet tracking for robotics-data fulfilment. Clients request datasets, operations staff allocate recorded episodes and deliver them, and clients accept or return deliveries for rework.
+
+The system uses a React/Vite frontend, a Python/Django REST Framework API, and PostgreSQL, orchestrated by Docker Compose. The Vite development server proxies `/api` and `/health` to Django. Backend domains are separated into `accounts`, `dataset_requests`, `episodes`, and `core`. SQLite is also supported for local backend development; PostgreSQL is the exercised Compose configuration.
 
 ## Architecture
 
@@ -9,17 +11,25 @@ Dataset Request Desk is an internal platform for managing robotics data requests
 - `episodes`: episode metadata, CSV import, and one-to-one request assignments.
 - `core`: health and analytics endpoints, plus structured request logging.
 
-## Run with Docker
+## Quick start
 
-Copy `.env.example` to `.env`, replacing development-only values, then start the database and API:
+Prerequisites: Docker Engine and the Docker Compose v2 plugin. From a fresh clone, create a local environment file and start the stack:
 
 ```bash
+cp .env.example .env
+# Set local-only values for the Django secret key and PostgreSQL password.
 docker compose up --build -d
 ```
 
-The backend waits for PostgreSQL, applies migrations, and creates missing seed users. The frontend is available at `http://localhost:5173`, the API at `http://localhost:8000`, and `GET /health` checks database connectivity. Vite proxies browser `/api` and `/health` requests to the backend container, so development requires no CORS configuration.
+Compose starts PostgreSQL, then the backend applies migrations and creates any missing development seed users. The frontend is at `http://localhost:5173`; the backend is at `http://localhost:8000`; `http://localhost:8000/health` checks API/database readiness. The episode CSV is intentionally not imported automatically. Import it once (re-running is safe):
 
-Run Django commands from the backend container:
+```bash
+docker compose exec backend python manage.py import_episodes ../seed/episodes.csv
+```
+
+In Docker, the frontend proxies browser `/api` and `/health` requests to the backend container, so development requires no CORS configuration. The database has a Compose health check. The unauthenticated `/health` endpoint executes a database query before reporting healthy.
+
+Run tests and other Django commands from the backend container:
 
 ```bash
 docker compose exec backend python manage.py showmigrations
@@ -29,7 +39,7 @@ docker compose exec backend python manage.py import_episodes ../seed/episodes.cs
 docker compose exec backend pytest
 ```
 
-The image working directory is `/app/backend`, so these commands work without an extra `cd` or `-w` argument. `docker compose down` stops the services and retains the PostgreSQL volume.
+The image working directory is `/app/backend`, so these commands work without an extra `cd` or `-w` argument. `docker compose down` stops the services and retains the PostgreSQL volume; `docker compose down -v` also removes that data.
 
 The frontend Compose service sets `VITE_API_BASE_URL=/api` and `VITE_BACKEND_PROXY_TARGET=http://backend:8000`. For local Vite development, install frontend packages and start the server from the repository root:
 
@@ -68,9 +78,13 @@ All `/api/` endpoints require authentication. The API supports HTTP Basic and Dj
 
 Clients create requests as themselves and can list or retrieve only their own requests. Clients accept or reject delivered requests. Operators and admins view all requests, perform operational transitions, list available episodes, and assign episodes. Only admins manage users. Seed passwords are development-only; Django stores password hashes.
 
+The browser keeps its Basic Authorization header in tab-scoped `sessionStorage` for this technical-test application. This is a development tradeoff, not a production authentication pattern; see [NOTES.md](./NOTES.md).
+
 ## Request Workflow
 
 Valid transitions are `submitted → in_progress → delivered → accepted`, `delivered → rejected`, and `rejected → in_progress`. Clients own acceptance/rejection; operators and admins own operational transitions. Each successful transition updates the request and writes a `StatusHistory` record in one transaction. Delivery is rejected until at least `episodes_requested` episodes are assigned.
+
+The frontend provides request listing and filtering, request creation and detail dialogs, role-appropriate workflow actions, allocation progress, and success/error toasts. Operators can deliver directly from the episode-allocation workflow once the allocation gate is met.
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
@@ -94,7 +108,7 @@ docker compose exec backend python manage.py import_episodes ../seed/episodes.cs
 
 The importer trims and uppercases episode IDs, normalizes quality casing, supports the supplied date formats, and reports imported/skipped rows and reasons. Repeated or case/whitespace-variant IDs resolve to one canonical ID. A database constraint requires stored IDs to be canonical. The migration retains the lowest-PK duplicate and transfers an assignment if exactly one duplicate is assigned; it aborts rather than discard conflicting assignments.
 
-Operators and admins can list unassigned `good` or `usable` episodes. Optional `task_name` and `quality` filters work, for example `GET /api/episodes/?task_name=pick%20cup&quality=good`. Episode lists use the same page-number pagination and response envelope.
+Operators and admins can list unassigned `good` or `usable` episodes. `task_name` is a live, case-insensitive substring filter; `quality` filters by quality. The `search` parameter matches substrings in episode ID, task, robot, operator, quality, duration, and recorded timestamp. Exact `duration` and `recorded_date` filters are also available. For example, `GET /api/episodes/?task_name=up&quality=good` matches task names containing `up`, while `GET /api/episodes/?search=EP-00015` searches the business ID. Episode lists use the same 15-record page-number pagination and response envelope; the UI supports numbered pages and direct page jumps.
 
 Assignment creation uses the episode business identifier, not its database primary key:
 
@@ -122,11 +136,13 @@ Only authenticated users with role `admin` can use these endpoints:
 
 Roles are `admin`, `operator`, and `client`; passwords use Django validation and hashing. Admins cannot deactivate themselves or remove their own admin role. The last active admin cannot be deactivated or demoted. Deactivation preserves request/status history and prevents future authentication.
 
+The admin UI supports paginated user listing, account creation, role changes, and deactivation, with confirmation dialogs for destructive actions.
+
 ## Analytics
 
 `GET /api/analytics/?start_date=2026-08-01&end_date=2026-08-31` is available to authenticated operators and admins. Both dates are inclusive and must use `YYYY-MM-DD`.
 
-The response contains episodes grouped by recorded date and robot, request counts by current status for requests created in the range, the median delivery duration for delivered transitions in the range, and the top five task names by good episodes recorded in the range. Request creation writes an initial `submitted` `StatusHistory` event with no previous status. Each median observation pairs that event with the first later `delivered` history event before another `submitted` or `delivered` event for the same request. A rejected request can return to `in_progress` and be delivered again, but that rework path creates no new `submitted` event, so its later delivery is not counted as another submission-to-delivery observation. Older requests without an initial submitted history event are excluded; their submission time is not inferred from `created_at`. The delivery timestamp determines whether an observation falls in the inclusive requested date range. PostgreSQL calculates the median with `PERCENTILE_CONT`; grouping and top-task counts are database aggregates.
+The response contains episodes grouped by recorded date and robot, episode counts by quality, request counts by current status for requests created in the range, the median delivery duration for delivered transitions in the range, and the top five task names by good episodes recorded in the range. Request creation writes an initial `submitted` `StatusHistory` event with no previous status. Each median observation pairs that event with the first later `delivered` history event before another `submitted` or `delivered` event for the same request. A rejected request can return to `in_progress` and be delivered again, but that rework path creates no new `submitted` event, so its later delivery is not counted as another submission-to-delivery observation. Older requests without an initial submitted history event are excluded; their submission time is not inferred from `created_at`. The delivery timestamp determines whether an observation falls in the inclusive requested date range. PostgreSQL calculates the median with `PERCENTILE_CONT`; grouping and top-task counts are database aggregates.
 
 ## Scale considerations
 
@@ -134,7 +150,7 @@ The response contains episodes grouped by recorded date and robot, request count
 
 With around 5 million episodes, analytics aggregates in PostgreSQL and formats grouped results in the application; it does not load every Episode or Request row into Python. The query filters/grouping keys are indexed individually on Episode: `recorded_at`, `robot_id`, `task_name`, and `quality`; `episode_id` is unique. Request has a `(client, status)` index and its client foreign-key index. StatusHistory has indexes on its request and actor foreign keys, but no composite index for status plus change time. Request `created_at` is not indexed.
 
-These indexes can help selective date, quality, task, robot, and relationship lookups, but they do not eliminate work for broad ranges. PostgreSQL may scan many matching episode entries and still aggregate/sort groups; the percentile median must order qualifying cycle durations and can become expensive or spill to disk as volume/concurrency grows. No 5-million-row benchmark has been run.
+These indexes can help selective date, quality, task, robot, and relationship lookups, but they do not eliminate work for broad ranges. PostgreSQL may scan many matching episode entries and still aggregate/sort groups; the percentile median must order qualifying cycle durations and can become expensive or spill to disk as volume/concurrency grows. At 10× users, connection capacity and concurrent request/assignment transactions need load testing. At 100× episodes, importer throughput and wide-range analytics are likely pressure points. No 5-million-row benchmark or load test has been run.
 
 ### Production-scale next steps
 
@@ -161,4 +177,12 @@ npm --prefix frontend run build
 
 Sign in with the development accounts above. Clients can manage their own requests; operators can manage request workflow and episode allocation; admins also manage users. Frontend Basic Auth credentials are held in tab-scoped session storage and cleared on logout or an unauthorized response.
 
-Backend tests cover authorization, transitions/history, importer idempotency and canonical IDs, assignments, admin user management, analytics, logging, pagination, and health checks. Frontend tests cover login handling, role navigation, request creation/review, assignment, and API errors.
+Backend tests cover authorization, client isolation, transitions/history, importer idempotency and invalid rows, canonical IDs, assignment/delivery rules, admin protections, analytics, logging, pagination, and health checks. Frontend tests cover login handling, role navigation, request creation/review, allocation and delivery, rejection reasons, filters, pagination, admin actions, analytics defaults/charts, and API errors. These are automated tests, not a large-scale performance benchmark.
+
+## Known limitations and next steps
+
+- No five-million-episode or high-concurrency benchmark has been run. Broad analytics ranges still aggregate many rows; see [Scale considerations](#scale-considerations).
+- The importer processes rows individually. Batch insertion and throughput measurement are future optimizations.
+- Browser authentication uses tab-scoped Basic Auth credentials; production should use HTTPS and an appropriately scoped HttpOnly session or short-lived token design.
+- **Optional stretch not implemented:** real-time updates, background export simulation, or public deployment were not selected. Core workflow and operational requirements were prioritized; one of these is a possible next extension.
+- No CI workflow or analytics pre-aggregation is included.
