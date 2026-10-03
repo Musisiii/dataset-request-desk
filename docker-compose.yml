@@ -17,6 +17,8 @@ services:
     build: .
     env_file:
       - .env
+    environment:
+      DJANGO_ALLOWED_HOSTS: "${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1},backend"
     ports:
       - "8000:8000"
     depends_on:

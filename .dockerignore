@@ -5,3 +5,5 @@ __pycache__
 .pytest_cache
 *.pyc
 postgres_data
+frontend/node_modules
+frontend/dist

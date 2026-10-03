@@ -1,6 +1,6 @@
 # Dataset Request Desk
 
-Dataset Request Desk is an internal platform for managing robotics data requests, episode metadata, assignment, and client acceptance. The backend uses Python, Django, and Django REST Framework; Docker Compose runs PostgreSQL. SQLite is available for local development.
+Dataset Request Desk is an internal platform for managing robotics data requests, episode metadata, assignment, and client acceptance. The backend uses Python, Django, and Django REST Framework; the frontend uses React and Vite; Docker Compose runs PostgreSQL. SQLite is available for local backend development.
 
 ## Architecture
 
@@ -17,7 +17,7 @@ Copy `.env.example` to `.env`, replacing development-only values, then start the
 docker compose up --build -d
 ```
 
-The backend waits for PostgreSQL, applies migrations, and creates missing seed users. The API is available at `http://localhost:8000`; `GET /health` checks database connectivity.
+The backend waits for PostgreSQL, applies migrations, and creates missing seed users. The frontend is available at `http://localhost:5173`, the API at `http://localhost:8000`, and `GET /health` checks database connectivity. Vite proxies browser `/api` and `/health` requests to the backend container, so development requires no CORS configuration.
 
 Run Django commands from the backend container:
 
@@ -30,6 +30,15 @@ docker compose exec backend pytest
 ```
 
 The image working directory is `/app/backend`, so these commands work without an extra `cd` or `-w` argument. `docker compose down` stops the services and retains the PostgreSQL volume.
+
+The frontend Compose service sets `VITE_API_BASE_URL=/api` and `VITE_BACKEND_PROXY_TARGET=http://backend:8000`. For local Vite development, install frontend packages and start the server from the repository root:
+
+```bash
+npm --prefix frontend ci
+npm --prefix frontend run dev -- --host 0.0.0.0
+```
+
+The local Vite proxy defaults to `http://localhost:8000`; override it with `VITE_BACKEND_PROXY_TARGET` if the backend runs elsewhere.
 
 ## Local Development
 
@@ -129,4 +138,13 @@ Run the backend suite with Docker/PostgreSQL:
 docker compose exec backend pytest
 ```
 
-Tests cover authorization, transitions/history, importer idempotency and canonical IDs, assignments, admin user management, analytics, logging, pagination, and health checks.
+Run frontend tests and a production build with:
+
+```bash
+npm --prefix frontend test
+npm --prefix frontend run build
+```
+
+Sign in with the development accounts above. Clients can manage their own requests; operators can manage request workflow and episode allocation; admins also manage users. Frontend Basic Auth credentials are held in tab-scoped session storage and cleared on logout or an unauthorized response.
+
+Backend tests cover authorization, transitions/history, importer idempotency and canonical IDs, assignments, admin user management, analytics, logging, pagination, and health checks. Frontend tests cover login handling, role navigation, request creation/review, assignment, and API errors.
