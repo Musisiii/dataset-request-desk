@@ -124,7 +124,19 @@ Roles are `admin`, `operator`, and `client`; passwords use Django validation and
 
 `GET /api/analytics/?start_date=2026-08-01&end_date=2026-08-31` is available to authenticated operators and admins. Both dates are inclusive and must use `YYYY-MM-DD`.
 
-The response contains episodes grouped by recorded date and robot, request counts by current status for requests created in the range, the median delivery duration for delivered transitions in the range, and the top five task names by good episodes recorded in the range. Request creation in the `submitted` state is the submission timestamp; delivery time comes from the `StatusHistory` transition to `delivered`. PostgreSQL calculates the median with `PERCENTILE_CONT`; grouping and top-task counts are database aggregates. The implementation does not load entire episode/request tables into Python, though large date ranges still require database work and should be monitored at production scale.
+The response contains episodes grouped by recorded date and robot, request counts by current status for requests created in the range, the median delivery duration for delivered transitions in the range, and the top five task names by good episodes recorded in the range. Request creation writes an initial `submitted` `StatusHistory` event with no previous status. Each median observation pairs that event with the first later `delivered` history event before another `submitted` or `delivered` event for the same request. A rejected request can return to `in_progress` and be delivered again, but that rework path creates no new `submitted` event, so its later delivery is not counted as another submission-to-delivery observation. Older requests without an initial submitted history event are excluded; their submission time is not inferred from `created_at`. The delivery timestamp determines whether an observation falls in the inclusive requested date range. PostgreSQL calculates the median with `PERCENTILE_CONT`; grouping and top-task counts are database aggregates.
+
+## Scale considerations
+
+### Current implementation
+
+With around 5 million episodes, analytics aggregates in PostgreSQL and formats grouped results in the application; it does not load every Episode or Request row into Python. The query filters/grouping keys are indexed individually on Episode: `recorded_at`, `robot_id`, `task_name`, and `quality`; `episode_id` is unique. Request has a `(client, status)` index and its client foreign-key index. StatusHistory has indexes on its request and actor foreign keys, but no composite index for status plus change time. Request `created_at` is not indexed.
+
+These indexes can help selective date, quality, task, robot, and relationship lookups, but they do not eliminate work for broad ranges. PostgreSQL may scan many matching episode entries and still aggregate/sort groups; the percentile median must order qualifying cycle durations and can become expensive or spill to disk as volume/concurrency grows. No 5-million-row benchmark has been run.
+
+### Production-scale next steps
+
+Use `EXPLAIN ANALYZE` with production-like distributions and date ranges before adding indexes; the planner may prefer a sequential scan for broad ranges. In particular, evaluate composite Episode date/quality indexes and a StatusHistory delivery-time/relationship index against measured plans. For much higher analytics volume or concurrency, consider daily pre-aggregates/materialized views or a separate analytics pipeline. None of those optimizations is currently implemented.
 
 ## Health and Request Logs
 
