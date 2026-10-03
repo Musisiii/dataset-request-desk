@@ -95,6 +95,17 @@ export default function AnalyticsPage({ onNotice }) {
       {loading && <div className="empty-state" role="status">Loading analytics report…</div>}
       {!loading && !error && data && (
         <>
+          <section className="table-panel status-counts">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">Current workload</p>
+                <h2>Requests by status</h2>
+              </div>
+            </div>
+            <div className="status-counts__grid">
+              {Object.entries(data.request_fulfilment.counts_by_status).map(([status, count]) => <div key={status}><span>{status.replaceAll("_", " ")}</span><strong>{count}</strong></div>)}
+            </div>
+          </section>
           <section className="metric-strip" aria-label="Request fulfillment summary">
             <div className="metric-cell"><span>Median to delivery</span><strong>{formatDuration(data.request_fulfilment.median_seconds_to_deliver)}</strong></div>
             <div className="metric-cell"><span>Episode groups</span><strong>{data.episodes_recorded.length.toLocaleString()}</strong></div>
@@ -115,6 +126,14 @@ export default function AnalyticsPage({ onNotice }) {
                   </>
                 )}
               </section>
+            </div>
+            <aside className="analytics-side">
+              {qualityCounts.length > 0 && (
+                <section className="table-panel">
+                  <div className="panel-heading"><div><p className="eyebrow">Quality mix</p><h2>Episodes by quality</h2></div></div>
+                  <BarChart items={qualityCounts} labelKey="quality" valueKey="count" label="Episode counts by quality" />
+                </section>
+              )}
               <section className="table-panel">
                 <div className="panel-heading"><div><p className="eyebrow">Quality output</p><h2>Top tasks by good episodes</h2></div></div>
                 {!data.top_tasks_by_good_episodes.length ? <div className="empty-state">No good episodes in this date range.</div> : (
@@ -126,21 +145,6 @@ export default function AnalyticsPage({ onNotice }) {
                   />
                 )}
               </section>
-              <section className="table-panel status-counts">
-                <div className="panel-heading"><div><p className="eyebrow">Current workload</p><h2>Requests by status</h2></div></div>
-                <div className="status-counts__grid">
-                  {Object.entries(data.request_fulfilment.counts_by_status).map(([status, count]) => <div key={status}><span>{status.replaceAll("_", " ")}</span><strong>{count}</strong></div>)}
-                </div>
-              </section>
-            </div>
-            <aside className="analytics-side">
-              {qualityCounts.length > 0 && (
-                <section className="table-panel">
-                  <div className="panel-heading"><div><p className="eyebrow">Quality mix</p><h2>Episodes by quality</h2></div></div>
-                  <BarChart items={qualityCounts} labelKey="quality" valueKey="count" label="Episode counts by quality" />
-                </section>
-              )}
-              <p className="muted analytics-range">Report period: {data.date_range.start_date} to {data.date_range.end_date}</p>
             </aside>
           </section>
         </>

@@ -34,8 +34,8 @@ Verification includes the backend suite on the Compose/PostgreSQL service, front
 
 ## Deliberate omissions and future work
 
-Core workflow, authorization, import, analytics, and operations were prioritized. **OPTIONAL STRETCH: NOT IMPLEMENTED.** The specification's optional choices—real-time updates, background export simulation, and public HTTPS deployment—remain future work, not core-scope failures. With more time, I would first add browser-level end-to-end tests against Compose, measure representative query plans/import throughput, and use that evidence to prioritize production authentication and analytics improvements. CI and analytics pre-aggregation are also not included.
+Core workflow, authorization, import, analytics, and operations were prioritized. Optional Stretch Item was not implemented. The specification's optional choices—real-time updates, background export simulation, and public HTTPS deployment—remain future work, not core-scope failures. With more time, I would first add browser-level end-to-end tests against Compose, measure representative query plans/import throughput, and use that evidence to prioritize production authentication and analytics improvements. CI and analytics pre-aggregation are also not included.
 
 ## AI tooling
 
-GitHub Copilot assisted with later repository inspection, implementation, test drafting, and debugging. I reviewed changes against source behavior, tests, migrations, and live Docker/API responses; I am responsible for understanding and defending the submitted design. I do not attribute earlier commits to a specific AI tool where the repository does not establish that attribution.
+GitHub Copilot assisted with repository inspection, implementation, test drafting, and debugging. I reviewed changes against source behavior, tests, migrations, and live Docker/API responses; I am responsible for understanding and defending the submitted design. I do not attribute earlier commits to a specific AI tool where the repository does not establish that attribution.

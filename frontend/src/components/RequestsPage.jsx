@@ -116,7 +116,7 @@ export default function RequestsPage({ session, onNotice, onConfirm, onOpenAssig
               <option value="rejected">Rejected</option>
             </select>
           </label>
-          <label className="filter-control filter-control--compact">
+          {/* <label className="filter-control filter-control--compact">
             <span>Allocation</span>
             <select value={allocationFilter} onChange={(event) => { setPage(1); setAllocationFilter(event.target.value); }}>
               <option value="all">All</option>
@@ -139,7 +139,7 @@ export default function RequestsPage({ session, onNotice, onConfirm, onOpenAssig
           <label className="filter-control filter-control--compact">
             <span>Submitted to</span>
             <input type="date" value={submittedTo} onChange={(event) => { setPage(1); setSubmittedTo(event.target.value); }} />
-          </label>
+          </label> */}
         </div>
 
         {loading ? (
