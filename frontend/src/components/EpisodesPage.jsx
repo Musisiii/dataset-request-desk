@@ -3,13 +3,14 @@ import { useEffect, useState } from "react";
 import { assignEpisode, getEpisodes, getRequest } from "../api.js";
 import Pagination from "./Pagination.jsx";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 15;
 
 export default function EpisodesPage({ targetRequest, onTargetRequest, onNotice, onChanged }) {
   const [page, setPage] = useState(1);
   const [taskDraft, setTaskDraft] = useState("");
   const [qualityDraft, setQualityDraft] = useState("");
-  const [filters, setFilters] = useState({ taskName: "", quality: "" });
+  const [searchDraft, setSearchDraft] = useState("");
+  const [filters, setFilters] = useState({ taskName: "", quality: "", search: "" });
   const [pageData, setPageData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busyEpisode, setBusyEpisode] = useState("");
@@ -29,7 +30,7 @@ export default function EpisodesPage({ targetRequest, onTargetRequest, onNotice,
   function applyFilters(event) {
     event.preventDefault();
     setPage(1);
-    setFilters({ taskName: taskDraft, quality: qualityDraft });
+    setFilters({ taskName: taskDraft, quality: qualityDraft, search: searchDraft });
   }
 
   async function handleAssign(episode) {
@@ -52,6 +53,7 @@ export default function EpisodesPage({ targetRequest, onTargetRequest, onNotice,
   }
 
   const canAssign = targetRequest?.status === "in_progress";
+  const canDeliver = targetRequest && targetRequest.assigned_episodes_count >= targetRequest.episodes_requested;
 
   return (
     <div className="page-stack">
@@ -73,6 +75,11 @@ export default function EpisodesPage({ targetRequest, onTargetRequest, onNotice,
             <span>Allocation</span>
             <strong>{targetRequest.assigned_episodes_count} / {targetRequest.episodes_requested}</strong>
           </div>
+          {canDeliver && (
+            <button className="button button--secondary" type="button" onClick={() => onChanged()}>
+              Deliver request now
+            </button>
+          )}
           <button className="button button--quiet" type="button" onClick={() => onTargetRequest(null)}>Clear target</button>
         </section>
       ) : (
@@ -81,6 +88,10 @@ export default function EpisodesPage({ targetRequest, onTargetRequest, onNotice,
 
       <section className="table-panel">
         <form className="filter-row episode-filters" onSubmit={applyFilters}>
+          <label className="filter-control">
+            <span>Search</span>
+            <input value={searchDraft} onChange={(event) => { setSearchDraft(event.target.value); setPage(1); setFilters((current) => ({ ...current, search: event.target.value })); }} placeholder="episode ID, robot, task, operator" />
+          </label>
           <label className="filter-control">
             <span>Task name</span>
             <input value={taskDraft} onChange={(event) => setTaskDraft(event.target.value)} placeholder="e.g. pick cup" />

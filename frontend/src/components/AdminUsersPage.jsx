@@ -5,7 +5,7 @@ import Pagination from "./Pagination.jsx";
 
 const PAGE_SIZE = 50;
 
-export default function AdminUsersPage({ session, onNotice }) {
+export default function AdminUsersPage({ session, onNotice, onConfirm }) {
   const [page, setPage] = useState(1);
   const [pageData, setPageData] = useState(null);
   const [roleDrafts, setRoleDrafts] = useState({});
@@ -64,7 +64,13 @@ export default function AdminUsersPage({ session, onNotice }) {
   }
 
   async function handleDeactivate(user) {
-    if (!window.confirm(`Deactivate ${user.email}? Their historical request records will remain.`)) return;
+    const confirmed = await onConfirm({
+      title: "Deactivate this account?",
+      message: `${user.email} will no longer be able to sign in. Historical request records remain unchanged.`,
+      confirmLabel: "Deactivate account",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     setBusyId(user.id);
     setError("");
     try {

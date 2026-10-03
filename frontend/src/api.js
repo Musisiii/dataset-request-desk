@@ -126,8 +126,15 @@ export function logout() {
   clearSession();
 }
 
-export function getRequests(page = 1) {
-  return apiRequest(`/requests/?page=${page}`);
+export function getRequests(pageOrOptions = 1, maybeOptions = {}) {
+  const options = typeof pageOrOptions === "object" ? pageOrOptions : { page: pageOrOptions, ...maybeOptions };
+  const query = new URLSearchParams({ page: String(options.page ?? 1) });
+  if (options.taskName) query.set("task_name", options.taskName.trim());
+  if (options.status && options.status !== "all") query.set("status", options.status);
+  if (options.deadlineAfter) query.set("deadline_after", options.deadlineAfter);
+  if (options.deadlineBefore) query.set("deadline_before", options.deadlineBefore);
+  if (options.allocationState && options.allocationState !== "all") query.set("allocation_state", options.allocationState);
+  return apiRequest(`/requests/?${query.toString()}`);
 }
 
 export function getRequest(id) {
@@ -138,14 +145,15 @@ export function createRequest(values) {
   return apiRequest("/requests/", { method: "POST", body: values });
 }
 
-export function transitionRequest(id, status) {
-  return apiRequest(`/requests/${id}/transition/`, { method: "POST", body: { status } });
+export function transitionRequest(id, status, reason = "") {
+  return apiRequest(`/requests/${id}/transition/`, { method: "POST", body: { status, ...(reason ? { reason } : {}) } });
 }
 
-export function getEpisodes({ page = 1, taskName = "", quality = "" } = {}) {
+export function getEpisodes({ page = 1, taskName = "", quality = "", search = "" } = {}) {
   const query = new URLSearchParams({ page: String(page) });
   if (taskName.trim()) query.set("task_name", taskName.trim());
   if (quality) query.set("quality", quality);
+  if (search.trim()) query.set("search", search.trim());
   return apiRequest(`/episodes/?${query.toString()}`);
 }
 

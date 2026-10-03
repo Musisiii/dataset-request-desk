@@ -6,9 +6,26 @@ import RequestDetail from "./RequestDetail.jsx";
 import RequestForm from "./RequestForm.jsx";
 import StatusBadge from "./StatusBadge.jsx";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 15;
 
-export default function RequestsPage({ session, onNotice, onOpenAssignments, onRequestChanged, refreshSignal }) {
+function parseDate(value) {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getDeadlineState(deadline) {
+  const dueDate = parseDate(deadline);
+  if (!dueDate) return "normal";
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diffDays = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return "overdue";
+  if (diffDays <= 7) return "soon";
+  return "normal";
+}
+
+export default function RequestsPage({ session, onNotice, onConfirm, onOpenAssignments, onRequestChanged, refreshSignal }) {
   const [page, setPage] = useState(1);
   const [pageData, setPageData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -17,17 +34,27 @@ export default function RequestsPage({ session, onNotice, onOpenAssignments, onR
   const [showForm, setShowForm] = useState(false);
   const [taskFilter, setTaskFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [allocationFilter, setAllocationFilter] = useState("all");
+  const [deadlineAfter, setDeadlineAfter] = useState("");
+  const [deadlineBefore, setDeadlineBefore] = useState("");
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError("");
-    getRequests(page)
+    getRequests({
+      page,
+      taskName: taskFilter,
+      status: statusFilter,
+      deadlineAfter,
+      deadlineBefore,
+      allocationState: allocationFilter,
+    })
       .then((data) => active && setPageData(data))
       .catch((requestError) => active && setError(requestError.message))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [page, refreshSignal]);
+  }, [page, refreshSignal, taskFilter, statusFilter, deadlineAfter, deadlineBefore, allocationFilter]);
 
   async function submitRequest(values) {
     const created = await createRequest(values);
@@ -41,16 +68,12 @@ export default function RequestsPage({ session, onNotice, onOpenAssignments, onR
     setSelectedId(id);
     setPageData(null);
     setLoading(true);
-    getRequests(1)
+    getRequests({ page: 1 })
       .then(setPageData)
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false));
   }
 
-  const rows = (pageData?.results || []).filter((request) => {
-    const matchesTask = request.task_name.toLowerCase().includes(taskFilter.trim().toLowerCase());
-    return matchesTask && (statusFilter === "all" || request.status === statusFilter);
-  });
   const isClient = session.role === "client";
 
   return (
@@ -72,14 +95,14 @@ export default function RequestsPage({ session, onNotice, onOpenAssignments, onR
       {error && <div className="notice notice--error" role="alert">{error}</div>}
 
       <section className="table-panel" aria-label="Requests">
-        <div className="filter-row">
+        <div className="filter-row request-filter-row">
           <label className="filter-control">
             <span>Task</span>
-            <input value={taskFilter} onChange={(event) => setTaskFilter(event.target.value)} placeholder="Filter this page" />
+            <input value={taskFilter} onChange={(event) => { setPage(1); setTaskFilter(event.target.value); }} placeholder="Filter this page" />
           </label>
           <label className="filter-control filter-control--compact">
             <span>Status</span>
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <select value={statusFilter} onChange={(event) => { setPage(1); setStatusFilter(event.target.value); }}>
               <option value="all">All statuses</option>
               <option value="submitted">Submitted</option>
               <option value="in_progress">In progress</option>
@@ -88,11 +111,27 @@ export default function RequestsPage({ session, onNotice, onOpenAssignments, onR
               <option value="rejected">Rejected</option>
             </select>
           </label>
+          <label className="filter-control filter-control--compact">
+            <span>Allocation</span>
+            <select value={allocationFilter} onChange={(event) => { setPage(1); setAllocationFilter(event.target.value); }}>
+              <option value="all">All</option>
+              <option value="needs_allocation">Needs allocation</option>
+              <option value="ready_for_delivery">Ready for delivery</option>
+            </select>
+          </label>
+          <label className="filter-control filter-control--compact">
+            <span>Deadline from</span>
+            <input type="date" value={deadlineAfter} onChange={(event) => { setPage(1); setDeadlineAfter(event.target.value); }} />
+          </label>
+          <label className="filter-control filter-control--compact">
+            <span>Deadline to</span>
+            <input type="date" value={deadlineBefore} onChange={(event) => { setPage(1); setDeadlineBefore(event.target.value); }} />
+          </label>
         </div>
 
         {loading ? (
           <div className="empty-state" role="status">Loading requests…</div>
-        ) : rows.length === 0 ? (
+        ) : pageData?.results.length === 0 ? (
           <div className="empty-state">
             <strong>{pageData?.count ? "No requests match these filters." : "No requests yet."}</strong>
             {isClient && !pageData?.count && <span>Create a request to start a dataset delivery.</span>}
@@ -112,32 +151,35 @@ export default function RequestsPage({ session, onNotice, onOpenAssignments, onR
                 </tr>
               </thead>
               <tbody>
-                {rows.map((request) => (
-                  <tr key={request.id} className={selectedId === request.id ? "is-selected" : ""}>
-                    <td>
-                      <span className="table-primary">{request.task_name}</span>
-                      <span className="table-secondary">REQ-{String(request.id).padStart(4, "0")}</span>
-                    </td>
-                    {!isClient && <td className="mono">{request.client}</td>}
-                    <td>
-                      <span className="allocation-number">{request.assigned_episodes_count} / {request.episodes_requested}</span>
-                      <span className="table-secondary">assigned</span>
-                    </td>
-                    <td>{request.deadline}</td>
-                    <td><StatusBadge status={request.status} /></td>
-                    <td>{new Date(request.created_at).toLocaleDateString()}</td>
-                    <td className="table-actions">
-                      <button className="button button--quiet button--small" type="button" onClick={() => setSelectedId(request.id)}>
-                        Details
-                      </button>
-                      {!isClient && request.status === "in_progress" && (
-                        <button className="button button--quiet button--small" type="button" onClick={() => onOpenAssignments(request)}>
-                          Assign
+                {(pageData?.results || []).map((request) => {
+                  const deadlineState = getDeadlineState(request.deadline);
+                  return (
+                    <tr key={request.id} className={`${selectedId === request.id ? "is-selected" : ""} ${deadlineState !== "normal" ? `deadline-row deadline-row--${deadlineState}` : ""}`}>
+                      <td>
+                        <span className="table-primary">{request.task_name}</span>
+                        <span className="table-secondary">REQ-{String(request.id).padStart(4, "0")}</span>
+                      </td>
+                      {!isClient && <td className="mono">{request.client}</td>}
+                      <td>
+                        <span className="allocation-number">{request.assigned_episodes_count} / {request.episodes_requested}</span>
+                        <span className="table-secondary">assigned</span>
+                      </td>
+                      <td className={`deadline-cell deadline-cell--${deadlineState}`}>{request.deadline}</td>
+                      <td><StatusBadge status={request.status} /></td>
+                      <td>{new Date(request.created_at).toLocaleDateString()}</td>
+                      <td className="table-actions">
+                        <button className="button button--quiet button--small" type="button" onClick={() => setSelectedId(request.id)}>
+                          Details
                         </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                        {!isClient && request.status === "in_progress" && (
+                          <button className="button button--quiet button--small" type="button" onClick={() => onOpenAssignments(request)}>
+                            Assign
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -152,6 +194,7 @@ export default function RequestsPage({ session, onNotice, onOpenAssignments, onR
           key={selectedId}
           id={selectedId}
           role={session.role}
+          onConfirm={onConfirm}
           onAssign={onOpenAssignments}
           onChanged={() => {
             onNotice("Request status updated.");

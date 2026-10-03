@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import App from "./App.jsx";
@@ -88,17 +88,62 @@ describe("role-aware workspace", () => {
     expect(screen.getByRole("button", { name: "Reject delivery" })).toBeInTheDocument();
   });
 
+  it("renders the fixed-shell landmarks on login and shows auth errors as a toast", async () => {
+    api.login.mockRejectedValue({ status: 401, message: "Authentication failed." });
+    const actor = userEvent.setup();
+    render(<App />);
+
+    expect(screen.getByRole("banner")).toHaveTextContent("Dataset Request Desk");
+    expect(screen.getByRole("contentinfo")).toHaveTextContent("Dataset Request Desk © 2026");
+    await actor.type(screen.getByLabelText("Email address"), "client-a@example.com");
+    await actor.type(screen.getByLabelText("Password"), "wrong-password");
+    await actor.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Email or password did not match.");
+  });
+
+  it("shows a safe error toast for an unexpected login server failure", async () => {
+    api.login.mockRejectedValue({ status: 500, message: "Internal Server Error" });
+    const actor = userEvent.setup();
+    render(<App />);
+    await actor.type(screen.getByLabelText("Email address"), "client-a@example.com");
+    await actor.type(screen.getByLabelText("Password"), "client123");
+    await actor.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Sign-in is temporarily unavailable. Please try again.");
+    expect(screen.queryByText("Internal Server Error")).not.toBeInTheDocument();
+  });
+
+  it("keeps admin navigation and logout in the sidebar", async () => {
+    const actor = await signIn("admin@example.com", "admin");
+
+    const sidebar = screen.getByRole("complementary", { name: "Application navigation" });
+    expect(within(sidebar).getByRole("button", { name: "Requests" })).toBeInTheDocument();
+    expect(within(sidebar).getByRole("button", { name: "Episodes" })).toBeInTheDocument();
+    expect(within(sidebar).getByRole("button", { name: "Analytics" })).toBeInTheDocument();
+    expect(within(sidebar).getByRole("button", { name: "Users" })).toBeInTheDocument();
+    expect(screen.getByRole("banner")).toHaveTextContent("Dataset Request Desk");
+    expect(screen.getByRole("contentinfo")).toHaveTextContent("Dataset Request Desk © 2026");
+    await actor.click(within(sidebar).getByRole("button", { name: "Log out" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("You have been signed out.");
+    expect(screen.getByRole("heading", { name: "Sign in to your workspace" })).toBeInTheDocument();
+  });
+
   it("submits client acceptance and rejection transitions only for delivered requests", async () => {
     const delivered = request({ id: 18, status: "delivered", assigned_episodes_count: 2 });
     api.getRequests.mockResolvedValue(page([delivered]));
     api.getRequest.mockResolvedValue(delivered);
-    vi.stubGlobal("confirm", vi.fn(() => true));
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const confirmSpy = vi.spyOn(window, "confirm").mockImplementation(() => true);
     const actor = await signIn("client-b@example.com", "client");
 
     await actor.click(await screen.findByRole("button", { name: "Details" }));
     await actor.click(await screen.findByRole("button", { name: "Accept delivery" }));
+    const dialog = await screen.findByRole("dialog", { name: "Accept delivery?" });
+    await actor.click(within(dialog).getByRole("button", { name: "Accept delivery" }));
     await waitFor(() => expect(api.transitionRequest).toHaveBeenCalledWith(18, "accepted"));
     expect(await screen.findByText("Request status updated.")).toBeInTheDocument();
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(confirmSpy).not.toHaveBeenCalled();
   });
 
   it("submits rejection as a delivered-request client action", async () => {
@@ -106,14 +151,30 @@ describe("role-aware workspace", () => {
     api.getRequests.mockResolvedValue(page([delivered]));
     api.getRequest.mockResolvedValue(delivered);
     api.transitionRequest.mockResolvedValue(request({ id: 19, status: "rejected", assigned_episodes_count: 2 }));
-    vi.stubGlobal("confirm", vi.fn(() => true));
     const actor = await signIn("client-b@example.com", "client");
 
     await actor.click(await screen.findByRole("button", { name: "Details" }));
     await actor.click(await screen.findByRole("button", { name: "Reject delivery" }));
+    const dialog = await screen.findByRole("dialog", { name: "Reject delivery?" });
+    await actor.click(within(dialog).getByRole("button", { name: "Reject delivery" }));
 
     await waitFor(() => expect(api.transitionRequest).toHaveBeenCalledWith(19, "rejected"));
     expect(await screen.findByText("Rejected", { selector: ".status-badge" })).toBeInTheDocument();
+  });
+
+  it("allows keyboard dismissal of a confirmation dialog without submitting the action", async () => {
+    const delivered = request({ status: "delivered", assigned_episodes_count: 2 });
+    api.getRequests.mockResolvedValue(page([delivered]));
+    api.getRequest.mockResolvedValue(delivered);
+    const actor = await signIn("client-a@example.com", "client");
+
+    await actor.click(await screen.findByRole("button", { name: "Details" }));
+    await actor.click(await screen.findByRole("button", { name: "Reject delivery" }));
+    expect(await screen.findByRole("dialog", { name: "Reject delivery?" })).toBeInTheDocument();
+    await actor.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(api.transitionRequest).not.toHaveBeenCalled();
   });
 
   it("submits a client request without a client ID and refreshes the list", async () => {
@@ -134,6 +195,7 @@ describe("role-aware workspace", () => {
     }));
     expect(api.createRequest.mock.calls[0][0]).not.toHaveProperty("client");
     expect(await screen.findByText("Request submitted.")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveClass("toast", "toast--success");
   });
 
   it("lets operators assign an episode to the selected request by business ID", async () => {
@@ -164,11 +226,12 @@ describe("role-aware workspace", () => {
     api.getRequests.mockResolvedValue(page([inProgress]));
     api.getRequest.mockResolvedValue(inProgress);
     api.transitionRequest.mockRejectedValue(new Error("Cannot deliver until enough episodes have been assigned."));
-    vi.stubGlobal("confirm", vi.fn(() => true));
     const actor = await signIn("ops2@example.com", "operator");
 
     await actor.click((await screen.findAllByRole("button", { name: "Details" }))[0]);
     await actor.click(await screen.findByRole("button", { name: "Mark delivered" }));
+    const dialog = await screen.findByRole("dialog", { name: "Mark request delivered?" });
+    await actor.click(within(dialog).getByRole("button", { name: "Mark delivered" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Cannot deliver until enough episodes have been assigned.");
     expect(api.transitionRequest).toHaveBeenCalledWith(17, "delivered");
   });
@@ -190,7 +253,6 @@ describe("role-aware workspace", () => {
     api.createUser.mockResolvedValue({ id: 3 });
     api.changeUserRole.mockResolvedValue({ id: 2, role: "client" });
     api.deactivateUser.mockResolvedValue({ id: 2, is_active: false });
-    vi.stubGlobal("confirm", vi.fn(() => true));
     const actor = await signIn("admin@example.com", "admin");
 
     await actor.click(await screen.findByRole("button", { name: "Users" }));
@@ -212,6 +274,8 @@ describe("role-aware workspace", () => {
     await actor.click(withinRow("ops2@example.com", "Save"));
     await waitFor(() => expect(api.changeUserRole).toHaveBeenCalledWith(2, "client"));
     await actor.click(withinRow("ops2@example.com", "Deactivate"));
+    const dialog = await screen.findByRole("dialog", { name: "Deactivate this account?" });
+    await actor.click(within(dialog).getByRole("button", { name: "Deactivate account" }));
     await waitFor(() => expect(api.deactivateUser).toHaveBeenCalledWith(2));
   });
 });

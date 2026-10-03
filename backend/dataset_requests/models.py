@@ -44,6 +44,7 @@ class StatusHistory(models.Model):
     request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="status_history")
     previous_status = models.CharField(max_length=16, choices=Request.Status.choices, null=True, blank=True)
     new_status = models.CharField(max_length=16, choices=Request.Status.choices)
+    reason = models.TextField(blank=True, default="")
     changed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,

@@ -2,38 +2,36 @@ import { useState } from "react";
 
 import { login } from "../api.js";
 
-export default function AuthScreen({ onAuthenticated }) {
+export default function AuthScreen({ onAuthenticated, onToast }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(event) {
     event.preventDefault();
-    setError("");
     setLoading(true);
     try {
       const session = await login(email, password);
       setPassword("");
       onAuthenticated(session);
     } catch (requestError) {
-      setError(requestError.message || "Could not sign in with those credentials.");
+      const message = requestError.status === 401
+        ? "Email or password did not match."
+        : requestError.status >= 500
+          ? "Sign-in is temporarily unavailable. Please try again."
+          : requestError.message || "Could not sign in. Please try again.";
+      onToast(message, "error");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <main className="login-layout">
+    <section className="login-layout" aria-label="Sign in">
       <section className="login-panel">
-        <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden="true">D</span>
-          <span>Dataset Request Desk</span>
-        </div>
         <p className="eyebrow">Operations portal</p>
         <h1>Sign in to your workspace</h1>
         <p className="muted">Use your assigned company account.</p>
-        {error && <div className="notice notice--error" role="alert">{error}</div>}
         <form className="stack-form" onSubmit={handleSubmit}>
           <label>
             Email address
@@ -66,6 +64,6 @@ export default function AuthScreen({ onAuthenticated }) {
         <div className="login-aside__rule" />
         <span className="mono">INTERNAL DATA PLATFORM</span>
       </aside>
-    </main>
+    </section>
   );
 }

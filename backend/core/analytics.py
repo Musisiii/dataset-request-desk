@@ -186,6 +186,11 @@ class AnalyticsView(APIView):
             for row in top_tasks_qs
         ]
 
+        quality_counts = {
+            choice: Episode.objects.filter(recorded_at__gte=start_datetime, recorded_at__lte=end_datetime, quality=choice).count()
+            for choice in Episode.Quality.values
+        }
+
         return Response(
             {
                 "date_range": {
@@ -194,6 +199,7 @@ class AnalyticsView(APIView):
                     "inclusive": True,
                 },
                 "episodes_recorded": episodes_recorded,
+                "quality_counts": quality_counts,
                 "request_fulfilment": {
                     "counts_by_status": status_counts,
                     "median_seconds_to_deliver": median_seconds,

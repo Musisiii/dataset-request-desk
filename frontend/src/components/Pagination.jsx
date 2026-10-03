@@ -1,5 +1,23 @@
-export default function Pagination({ page, count, pageSize = 50, onChange }) {
+export default function Pagination({ page, count, pageSize = 15, onChange }) {
   const pageCount = Math.max(1, Math.ceil(count / pageSize));
+
+  function getVisiblePages() {
+    if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1);
+    const pages = new Set([1, 2, pageCount - 1, pageCount]);
+    const window = [page - 1, page, page + 1].filter((value) => value > 1 && value < pageCount);
+    window.forEach((value) => pages.add(value));
+    const sorted = [...pages].sort((a, b) => a - b);
+    const result = [];
+    for (let index = 0; index < sorted.length; index += 1) {
+      const value = sorted[index];
+      const previous = sorted[index - 1];
+      if (previous !== undefined && value - previous > 1) result.push("ellipsis");
+      result.push(value);
+    }
+    return result;
+  }
+
+  const visiblePages = getVisiblePages();
 
   return (
     <div className="pagination" aria-label="Pagination">
@@ -8,7 +26,18 @@ export default function Pagination({ page, count, pageSize = 50, onChange }) {
         <button className="button button--quiet" type="button" onClick={() => onChange(page - 1)} disabled={page <= 1}>
           Previous
         </button>
-        <span className="pagination__page">{page} / {pageCount}</span>
+        {visiblePages.map((item, index) => item === "ellipsis" ? <span key={`ellipsis-${index}`} className="pagination__ellipsis">…</span> : (
+          <button
+            key={item}
+            className={`button button--quiet pagination__button ${item === page ? "pagination__button--active" : ""}`}
+            type="button"
+            onClick={() => onChange(item)}
+            aria-current={item === page ? "page" : undefined}
+            disabled={item === page}
+          >
+            {item}
+          </button>
+        ))}
         <button className="button button--quiet" type="button" onClick={() => onChange(page + 1)} disabled={page >= pageCount}>
           Next
         </button>

@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import mixins, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
@@ -20,11 +21,21 @@ class EpisodeViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         )
         task_name = self.request.query_params.get("task_name")
         quality = self.request.query_params.get("quality")
+        search = self.request.query_params.get("search")
         if task_name:
-            queryset = queryset.filter(task_name__iexact=task_name.strip())
+            queryset = queryset.filter(task_name__icontains=task_name.strip())
         if quality:
             normalized_quality = quality.strip().lower()
             if normalized_quality not in {Episode.Quality.GOOD, Episode.Quality.USABLE}:
                 raise ValidationError({"quality": "Use good or usable."})
             queryset = queryset.filter(quality=normalized_quality)
-        return queryset.order_by("episode_id")
+        if search:
+            search_term = search.strip()
+            queryset = queryset.filter(
+                Q(episode_id__icontains=search_term)
+                | Q(task_name__icontains=search_term)
+                | Q(robot_id__icontains=search_term)
+                | Q(operator_name__icontains=search_term)
+                | Q(quality__icontains=search_term)
+            )
+        return queryset.order_by("recorded_at", "episode_id")

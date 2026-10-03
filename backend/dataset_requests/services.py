@@ -18,7 +18,7 @@ CLIENT_TRANSITION_TARGETS = {Request.Status.ACCEPTED, Request.Status.REJECTED}
 OPERATOR_TRANSITION_TARGETS = {Request.Status.IN_PROGRESS, Request.Status.DELIVERED}
 
 
-def transition_request(dataset_request, new_status, acting_user):
+def transition_request(dataset_request, new_status, acting_user, reason=""):
     """Apply one authorized transition and write its audit record atomically."""
     try:
         new_status = Request.Status(new_status)
@@ -57,6 +57,7 @@ def transition_request(dataset_request, new_status, acting_user):
             request=locked_request,
             previous_status=current_status,
             new_status=new_status,
+            reason=(reason.strip() if isinstance(reason, str) else ""),
             changed_by=acting_user,
         )
     return locked_request

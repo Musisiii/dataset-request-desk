@@ -20,7 +20,7 @@ const ACTION_LABELS = {
   rejected: "Reject delivery",
 };
 
-export default function RequestDetail({ id, role, onAssign, onChanged, onClose }) {
+export default function RequestDetail({ id, role, onAssign, onChanged, onClose, onConfirm }) {
   const [request, setRequest] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -39,12 +39,12 @@ export default function RequestDetail({ id, role, onAssign, onChanged, onClose }
 
   async function changeStatus(nextStatus) {
     if (["accepted", "rejected", "delivered"].includes(nextStatus)) {
-      const question = nextStatus === "rejected"
-        ? "Reject this delivery and return it to operations for rework?"
-        : nextStatus === "accepted"
-          ? "Accept this delivery?"
-          : "Mark this request delivered to the client?";
-      if (!window.confirm(question)) return;
+      const messages = {
+        rejected: { title: "Reject delivery?", message: "This will return the request to operations for rework.", confirmLabel: "Reject delivery", tone: "danger" },
+        accepted: { title: "Accept delivery?", message: "Confirm that this dataset delivery meets your request.", confirmLabel: "Accept delivery" },
+        delivered: { title: "Mark request delivered?", message: "The client will be able to review and accept or reject this delivery.", confirmLabel: "Mark delivered" },
+      };
+      if (!(await onConfirm(messages[nextStatus]))) return;
     }
     setBusy(true);
     setError("");
