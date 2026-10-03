@@ -1,8 +1,9 @@
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 
 from django.db import transaction
 from django.db.models import Count, F
 from django.db.models.functions import Coalesce
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -29,6 +30,8 @@ class RequestViewSet(viewsets.ModelViewSet):
         status = self.request.query_params.get("status")
         deadline_after = self.request.query_params.get("deadline_after") or self.request.query_params.get("start_date")
         deadline_before = self.request.query_params.get("deadline_before") or self.request.query_params.get("end_date")
+        submitted_from = self.request.query_params.get("submitted_from")
+        submitted_to = self.request.query_params.get("submitted_to")
         allocation_state = self.request.query_params.get("allocation_state")
 
         if task_name:
@@ -45,6 +48,27 @@ class RequestViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(deadline__lte=datetime.strptime(deadline_before, "%Y-%m-%d").date())
             except ValueError as exc:
                 raise ValidationError({"deadline_before": "Use YYYY-MM-DD."}) from exc
+        if submitted_from:
+            try:
+                submitted_from_date = datetime.strptime(submitted_from, "%Y-%m-%d").date()
+            except ValueError as exc:
+                raise ValidationError({"submitted_from": "Use YYYY-MM-DD."}) from exc
+            submitted_from_start = timezone.make_aware(
+                datetime.combine(submitted_from_date, time.min),
+                timezone.get_default_timezone(),
+            )
+            queryset = queryset.filter(created_at__gte=submitted_from_start)
+        if submitted_to:
+            try:
+                submitted_to_date = datetime.strptime(submitted_to, "%Y-%m-%d").date()
+            except ValueError as exc:
+                raise ValidationError({"submitted_to": "Use YYYY-MM-DD."}) from exc
+            if submitted_to_date < date.max:
+                submitted_to_end = timezone.make_aware(
+                    datetime.combine(submitted_to_date + timedelta(days=1), time.min),
+                    timezone.get_default_timezone(),
+                )
+                queryset = queryset.filter(created_at__lt=submitted_to_end)
         if allocation_state == "needs_allocation":
             queryset = queryset.filter(assigned_episodes_count__lt=F("episodes_requested"))
         elif allocation_state == "ready_for_delivery":

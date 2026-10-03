@@ -80,7 +80,9 @@ Valid transitions are `submitted → in_progress → delivered → accepted`, `d
 | `POST` | `/api/requests/{id}/transition/` | Transition with `{"status":"in_progress"}` or another permitted status. |
 | `POST` | `/api/requests/{id}/assignments/` | Assign an eligible episode by business ID. |
 
-Responses include `assigned_episodes_count`, calculated with a database annotation. Request lists use DRF page-number pagination with 50 results per page and a `count`, `next`, `previous`, `results` envelope. Use `?page=2` for later pages.
+Responses include `assigned_episodes_count`, calculated with a database annotation. Request lists use DRF page-number pagination with 15 results per page and a `count`, `next`, `previous`, `results` envelope. Use `?page=2` for later pages.
+
+Request lists support `task_name`, `status`, `allocation_state`, and date filters. `submitted_from` and `submitted_to` filter `created_at` by inclusive calendar dates in the configured Django timezone; both accept `YYYY-MM-DD` and may be used independently. For example, `GET /api/requests/?submitted_from=2026-08-01&submitted_to=2026-08-31` returns requests created on any local time from August 1 through August 31. Existing deadline filters `deadline_after` and `deadline_before` remain available, with `start_date` and `end_date` as aliases.
 
 ## Episodes and Assignments
 

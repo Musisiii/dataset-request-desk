@@ -1,6 +1,8 @@
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import pytest
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import User
@@ -97,6 +99,47 @@ def test_clients_only_list_and_retrieve_their_own_requests():
 
 
 @pytest.mark.django_db
+def test_request_list_filters_submission_dates_inclusive_in_configured_timezone():
+    client_user = make_user("client@example.com", User.Role.CLIENT)
+    operator = make_user("ops@example.com", User.Role.OPERATOR)
+    requests = [make_request(client_user) for _ in range(4)]
+
+    local_tz = timezone.get_default_timezone()
+    start = timezone.make_aware(datetime(2026, 10, 3), local_tz)
+    next_day = timezone.make_aware(datetime(2026, 10, 5), local_tz)
+    timestamps = [
+        start - timedelta(microseconds=1),
+        start,
+        next_day - timedelta(microseconds=1),
+        next_day,
+    ]
+    for dataset_request, created_at in zip(requests, timestamps):
+        Request.objects.filter(pk=dataset_request.pk).update(created_at=created_at)
+    Request.objects.filter(pk=requests[1].pk).update(deadline="2026-10-09")
+
+    api_client = authenticated_client(operator)
+    response = api_client.get("/api/requests/?submitted_from=2026-10-03&submitted_to=2026-10-04")
+    deadline_filtered_response = api_client.get(
+        "/api/requests/?submitted_from=2026-10-03&submitted_to=2026-10-04&deadline_after=2026-10-10"
+    )
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.data["results"]] == [requests[1].pk, requests[2].pk]
+    assert [item["id"] for item in deadline_filtered_response.data["results"]] == [requests[2].pk]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("parameter", ["submitted_from", "submitted_to"])
+def test_invalid_submission_date_filter_is_rejected(parameter):
+    operator = make_user("ops@example.com", User.Role.OPERATOR)
+
+    response = authenticated_client(operator).get(f"/api/requests/?{parameter}=not-a-date")
+
+    assert response.status_code == 400
+    assert parameter in response.data
+
+
+@pytest.mark.django_db
 def test_request_responses_include_annotated_assigned_episode_counts():
     from datetime import timedelta
 
@@ -134,11 +177,16 @@ def test_request_list_is_paginated_without_leaking_other_clients_requests():
     api_client = authenticated_client(client_a)
     first_page = api_client.get("/api/requests/")
     second_page = api_client.get("/api/requests/?page=2")
+    third_page = api_client.get("/api/requests/?page=3")
+    fourth_page = api_client.get("/api/requests/?page=4")
 
     assert first_page.data["count"] == 51
-    assert len(first_page.data["results"]) == 50
-    assert len(second_page.data["results"]) == 1
-    assert {item["id"] for item in first_page.data["results"] + second_page.data["results"]} == {
+    assert len(first_page.data["results"]) == 15
+    assert len(second_page.data["results"]) == 15
+    assert len(third_page.data["results"]) == 15
+    assert len(fourth_page.data["results"]) == 6
+    all_pages = first_page.data["results"] + second_page.data["results"] + third_page.data["results"] + fourth_page.data["results"]
+    assert {item["id"] for item in all_pages} == {
         item.pk for item in requests_a
     }
 

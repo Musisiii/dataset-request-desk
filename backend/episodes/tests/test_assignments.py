@@ -145,11 +145,64 @@ def test_episode_list_is_paginated_and_filters_remain_active():
     api_client = authenticated_client(operator)
     first_page = api_client.get("/api/episodes/?task_name=pick%20cup&quality=good")
     second_page = api_client.get("/api/episodes/?task_name=pick%20cup&quality=good&page=2")
+    fourth_page = api_client.get("/api/episodes/?task_name=pick%20cup&quality=good&page=4")
 
     assert first_page.data["count"] == 52
-    assert len(first_page.data["results"]) == 50
-    assert len(second_page.data["results"]) == 2
+    assert len(first_page.data["results"]) == 15
+    assert len(second_page.data["results"]) == 15
+    assert len(fourth_page.data["results"]) == 7
     assert all(item["task_name"] == "pick cup" for item in first_page.data["results"] + second_page.data["results"])
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("search_term", ["ASSIGN-201", "burp", "arm-03", "77", "43", "2026-10"])
+def test_episode_search_matches_id_task_robot_operator_duration_and_recorded_at(search_term):
+    operator = make_user("operator@example.com", User.Role.OPERATOR)
+    episode = make_episode(201, Episode.Quality.USABLE, task_name="burp cup")
+    episode.robot_id = "arm-03"
+    episode.operator_name = "Operator 77"
+    episode.duration_seconds = 143
+    episode.recorded_at = timezone.datetime(2026, 10, 3, 12, tzinfo=timezone.get_current_timezone())
+    episode.save()
+
+    response = authenticated_client(operator).get(f"/api/episodes/?search={search_term}")
+
+    assert response.status_code == 200
+    assert [item["episode_id"] for item in response.data["results"]] == [episode.episode_id]
+
+
+@pytest.mark.django_db
+def test_episode_duration_and_recorded_date_filters_are_applied():
+    operator = make_user("operator@example.com", User.Role.OPERATOR)
+    matching_episode = make_episode(202)
+    matching_episode.duration_seconds = 43
+    matching_episode.recorded_at = timezone.datetime(2026, 10, 3, 12, tzinfo=timezone.get_current_timezone())
+    matching_episode.save()
+    other_episode = make_episode(203)
+    other_episode.duration_seconds = 44
+    other_episode.recorded_at = timezone.datetime(2026, 10, 2, 12, tzinfo=timezone.get_current_timezone())
+    other_episode.save()
+
+    response = authenticated_client(operator).get(
+        "/api/episodes/?duration=43&recorded_date=2026-10-03"
+    )
+
+    assert response.status_code == 200
+    assert response.data["count"] == 1
+    assert response.data["results"][0]["episode_id"] == matching_episode.episode_id
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "query",
+    ["duration=1.5", "duration=0", "recorded_date=not-a-date"],
+)
+def test_episode_filters_reject_invalid_values(query):
+    operator = make_user("operator@example.com", User.Role.OPERATOR)
+
+    response = authenticated_client(operator).get(f"/api/episodes/?{query}")
+
+    assert response.status_code == 400
 
 
 @pytest.mark.django_db
